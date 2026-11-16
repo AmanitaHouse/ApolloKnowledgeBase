@@ -164,12 +164,16 @@ def power_cycle():
         urllib.request.urlopen("http://%s/cm?cmnd=%s" % (plug, cmd), timeout=5).read()
         if cmd.endswith("Off"):
             time.sleep(10)
-    for i in range(24):
-        time.sleep(5)
+    # A V4 answers 15 to 35 s after power-on (guides/testing-on-v4-hardware.md):
+    # poll every second, and stop after 60 s instead of waiting minutes for a
+    # V4 that will not come back by itself.
+    start = time.time()
+    while time.time() - start < 60:
+        time.sleep(1)
         if alive():
-            print("V4 up after %d s" % ((i + 1) * 5))
+            print("V4 up after %d s" % (time.time() - start))
             return True
-    print("V4 not answering 120 s after power-on")
+    print("V4 not answering 60 s after power-on")
     return False
 
 
