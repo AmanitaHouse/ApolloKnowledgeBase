@@ -33,11 +33,13 @@ The machine is set with environment variables:
   AKB_V4_SERIAL   serial port of the V4 debug output, or "none"   default: first /dev/cu.usbserial*
   AKB_V4_CAPTURE  ffmpeg avfoundation video device of the HDMI capture  default: "USB Video"
   PREFIX          ApolloCrossDev compiler folder   default: from skills/apollo-build/scripts/find-acd.sh
+  AKB_V4_TRANSPORT  local transport module (see transport())  default: ~/.config/akb/v4transport.py
 Needs ash and acp (ApolloExplorer), and ffmpeg for shot and record.
 """
 import argparse
 import datetime
 import glob
+import importlib.util
 import json
 import os
 import re
@@ -66,7 +68,47 @@ def host():
 
 # --- the V4 over the network ------------------------------------------------
 
+_transport = False                                  # False: not looked up yet
+
+
+def transport():
+    """An optional machine-local module that replaces ash and acp, or None.
+
+    The module ($AKB_V4_TRANSPORT, default ~/.config/akb/v4transport.py)
+    defines available(host) -> bool, alive(host) -> bool,
+    run(host, cmd, timeout) -> (output, finished) and
+    upload(host, path, remote_dir). It is used only when available() says
+    so; when it is missing, fails to load or raises, v4test.py uses ash and
+    acp as usual."""
+    global _transport
+    if _transport is False:
+        _transport = None
+        path = os.environ.get("AKB_V4_TRANSPORT") or \
+            os.path.expanduser("~/.config/akb/v4transport.py")
+        if os.path.isfile(path):
+            try:
+                spec = importlib.util.spec_from_file_location("akb_v4transport", path)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                if mod.available(host()):
+                    _transport = mod
+            except Exception:
+                pass
+    return _transport
+
+
 def ash(cmd, timeout=15):
+    """Run an AmigaDOS command (local transport, else ash). Returns (output, finished)."""
+    t = transport()
+    if t:
+        try:
+            return t.run(host(), cmd, timeout)
+        except Exception:
+            pass                                    # not reachable now: use ash
+    return ash_only(cmd, timeout)
+
+
+def ash_only(cmd, timeout=15):
     """Run an AmigaDOS command with ash. Returns (output, finished)."""
     try:
         p = subprocess.run(["ash", host(), cmd], stdin=subprocess.DEVNULL,
@@ -82,11 +124,27 @@ def ash(cmd, timeout=15):
 
 
 def alive():
-    out, done = ash("C:Echo up", timeout=10)
+    t = transport()
+    if t:
+        try:
+            if t.alive(host()):
+                return True
+        except Exception:
+            pass
+    try:
+        out, done = ash_only("C:Echo up", timeout=10)
+    except FileNotFoundError:                       # no ash installed
+        return False
     return done and out.strip() == "up"
 
 
 def upload(path, remote_dir):
+    t = transport()
+    if t:
+        try:
+            return t.upload(host(), path, remote_dir)
+        except Exception:
+            pass                                    # not reachable now: use acp
     h = host()
     vol, _, rest = remote_dir.partition(":")
     dest = "%s:%s/%s/" % (h, vol, rest) if rest else "%s:%s/" % (h, vol)
@@ -301,7 +359,8 @@ def cmd_run(args):
     core, _ = ash("ApolloControl CO")               # core number, e.g. 12556
     core = core.strip() if core.strip().isdigit() else None
     print("V4 at %s: core %s, %s" % (host(), core or "unknown", version))
-    summary = {"time": stamp, "core": core, "host_version": version, "runs": []}
+    summary = {"time": stamp, "core": core, "host_version": version,
+               "transport": "local module" if transport() else "ash", "runs": []}
     ash("C:MakeDir %s" % REMOTE_DIR)                # fails harmlessly when it exists
 
     plan = []
