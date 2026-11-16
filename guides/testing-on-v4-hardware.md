@@ -17,6 +17,7 @@ related:
   - core/cpu-68080/performance-counters.md
 sources:
   - "lessons/2026-11-akb-verification.md"
+  - "lessons/2026-11-apolloexplorer.md"
   - "ApolloKnowledgeBase tools/v4/v4test.py and tools/v4/tests/ (2026-11-09)"
   - "ApolloOS-Port project, mk/card.mk and tools/ (WDrijver, 2026-10)"
   - "github.com/WDrijver/ApolloCrossDev Projects/ApolloLib/ApolloCrossDev_Debug.c"
@@ -88,8 +89,15 @@ This is how the knowledge base's own hardware tests run (`tools/v4/`).
    names. ffmpeg needs about a second to start: start it before the
    program.
 7. **Recover a hung V4.** Switch the plug off, wait 10 s, switch it on, and
-   wait until step 1 answers again. The tested V4 answered 15 s after
-   power-on (M).
+   wait until step 1 answers again. A V4 boots fast: the tested V4 answered
+   `ash` 15 s after power-on under ApolloOS R9.5, and answered ping 34 s
+   after power-on under AmigaOS 3.9 (M). Poll every second and give up
+   after 60 s; a V4 that is not back by then needs a look, not more
+   waiting.
+   - DON'T expect step 1 to answer after a power cycle unless
+     ApolloExplorerSrv starts at boot (`WBStartup` or `S:User-Startup`).
+     Without that, the V4 answers ping, but no remote command works until
+     someone starts the server by hand.
 
 `tools/v4/v4test.py` in the knowledge base does all of this: it builds the
 test with ApolloCrossDev, runs variants alternately (see
@@ -110,4 +118,6 @@ picture and core number per run.
 | `ash` hangs with the older ApolloExplorerSrv, works after the update; `acp` works with both | (M) | Core 12556 | V4 UniCorn, ApolloOS R9.5, 2026-11-09 |
 | Direct UART writes at 115200 arrive; `Echo >SER:` does not | (M) | Core 12556 | `tools/v4/tests/serial-out`; `SER:` listened for at 9600, 19200, 38400, 57600, 115200 |
 | The V4 answers `ash` 15 s after power-on | (M) | Core 12556 | `v4test.py power-cycle`, Tasmota plug |
+| The V4 answers ping 34.4 s after power-on | (M) | Core 12856 | V4 UniCorn, AmigaOS 3.9, Tasmota plug off 5 s then on, ping polled every 0.5 s, 2026-11-16 |
+| Without ApolloExplorerSrv in the startup, nothing answers on port 30302 after a power cycle | (M) | Core 12856 | Same power cycle: port 30302 refused 90 s after power-on while ping answered |
 | The capture device needs `-pixel_format uyvy422` and offers 1920x1080 at up to 60 fps | (M) | any | ffmpeg 9.0.2, macOS |
