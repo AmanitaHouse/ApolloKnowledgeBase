@@ -32,6 +32,7 @@ The emitted code has a `btst` with a bit number below 0 or above 7 on a
 memory operand:
 
 ```asm
+; kb:no-assemble (what the broken compiler emits: no assembler accepts it)
     btst    #-23,(a3)       ; meant: bit 1 of the long at (a3)
 ```
 
