@@ -182,6 +182,7 @@
 /hardware/v4-generic/p22-secondary-sd-slot.md @TuKo1982
 /hardware/v4-standalone/p20-i2s-audio-header.md @TuKo1982
 /lessons/2026-11-akb-verification.md @WDrijver
+/lessons/2026-11-apolloexplorer.md @WDrijver
 /os/apolloos-and-amigaos-on-v4.md @WDrijver
 /os/apolloos-specific-on-v4.md @WDrijver
 /os/os-takeover.md @WDrijver
@@ -193,6 +194,7 @@
 /os/pitfalls/ramlib-reuses-library-by-name.md @TuKo1982
 /os/pitfalls/stack-patches-hide-small-stack-bugs.md @TuKo1982
 /os/pitfalls/v4-rom-modules-and-reset.md @TuKo1982
+/os/pitfalls/v4net-full-size-frames-lost.md @WDrijver
 /toolchain/c-compiler-options.md @WDrijver
 /toolchain/compiler-variants.md @WDrijver
 /toolchain/index.md @WDrijver
