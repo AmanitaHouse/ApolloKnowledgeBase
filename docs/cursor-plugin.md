@@ -149,6 +149,12 @@ Cursor's **From GitHub Repository** import reads
 `source` `.`. That source is the repository root, so Cursor loads
 `.cursor-plugin/plugin.json` from the same commit as the knowledge base.
 
+The marketplace entry is only `name`, `source`, and `description`. Version,
+author, homepage, repository, and keywords stay in
+`.cursor-plugin/plugin.json`. Cursor's published marketplace schema rejects
+any other field on a plugin entry, including fields that the prose reference
+lists.
+
 In Customize, import:
 
 `https://github.com/ApolloTeam-dev/ApolloKnowledgeBase`
@@ -349,6 +355,10 @@ knowledge-base frontmatter check.
 
 `check_cursor_plugin.py` and `check_claude_plugin.py` check manifests. That
 is static validation. It does not load Cursor or Claude Code.
+`check_cursor_plugin.py` also imports `jsonschema` and validates both Cursor
+manifests against the pinned schemas in `tools/cursor-schemas/`. CI installs
+`jsonschema==4.25.1` with PyYAML. A marketplace entry that adds a field the
+schema does not list fails this check.
 `check_claude_plugin.py` prints `LIVE claude plugin validate: NOT VERIFIED`
 when the `claude` command is absent. That line is not a passing plugin load.
 

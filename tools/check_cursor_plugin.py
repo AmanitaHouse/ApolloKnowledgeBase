@@ -4,6 +4,11 @@
 This does not load Cursor, does not run the skills, and does not compile.
 Workflow execution is tools/check_shared_workflows.py. A passing run here
 is not evidence that a skill ran inside Cursor.
+
+Marketplace and plugin manifests are checked with a JSON Schema validator
+against the pinned Cursor schemas in tools/cursor-schemas/. Those files are
+snapshots of github.com/cursor/plugins at one revision. The check does not
+download them.
 """
 import json
 import os
@@ -13,6 +18,8 @@ import sys
 import yaml
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+SCHEMA_DIR = os.path.join(ROOT, "tools", "cursor-schemas")
+SCHEMA_REVISION = "5229aad76c37451561c5b81a9b5072ae1c549a5b"
 
 DEFAULT_REPO = "https://github.com/ApolloTeam-dev/ApolloKnowledgeBase"
 NAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$")
@@ -30,6 +37,72 @@ def fail(message):
 def load_json(path):
     with open(path, encoding="utf-8") as fh:
         return json.load(fh)
+
+
+def load_vendor_schema(filename, expected_id):
+    path = os.path.join(SCHEMA_DIR, filename)
+    try:
+        schema = load_json(path)
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"vendor schema {filename}: {exc}")
+        return None
+    if schema.get("$id") != expected_id:
+        fail(f"vendor schema {filename} $id is not {expected_id}")
+        return None
+    return schema
+
+
+def draft7_validators(market_schema, plugin_schema):
+    try:
+        from jsonschema import Draft7Validator, FormatChecker
+    except ImportError:
+        fail("jsonschema is required to validate Cursor manifests")
+        return None, None
+    checker = FormatChecker()
+    return (
+        Draft7Validator(market_schema, format_checker=checker),
+        Draft7Validator(plugin_schema, format_checker=checker),
+    )
+
+
+def schema_location(error):
+    if not error.absolute_path:
+        return "/"
+    return "/" + "/".join(str(part) for part in error.absolute_path)
+
+
+def report_schema_errors(label, validator, instance):
+    if validator is None:
+        return False
+    ok = True
+    found = sorted(validator.iter_errors(instance), key=lambda item: list(item.absolute_path))
+    for error in found:
+        ok = False
+        fail(f"{label} {schema_location(error)}: {error.message}")
+    return ok
+
+
+def reject_unsupported_marketplace_entry(validator):
+    """The pinned schema must keep rejecting fields it does not list."""
+    if validator is None:
+        return
+    sample = {
+        "name": "example",
+        "owner": {"name": "Example"},
+        "plugins": [
+            {
+                "name": "akb",
+                "source": ".",
+                "description": "example",
+                "keywords": ["unsupported"],
+            }
+        ],
+    }
+    messages = [error.message for error in validator.iter_errors(sample)]
+    if not any("keywords" in message for message in messages):
+        fail("pinned marketplace schema accepted an unsupported plugin entry field")
+        return
+    print("SCHEMA unsupported marketplace entry field: REJECTED")
 
 
 def frontmatter_block(path):
@@ -50,6 +123,23 @@ def check_manifests():
     except (OSError, json.JSONDecodeError) as exc:
         fail(f"manifest JSON: {exc}")
         return
+    market_schema = load_vendor_schema(
+        "marketplace.schema.json",
+        "https://cursor.com/schemas/cursor-plugin/marketplace.json",
+    )
+    plugin_schema = load_vendor_schema(
+        "plugin.schema.json",
+        "https://cursor.com/schemas/cursor-plugin/plugin.json",
+    )
+    if market_schema and plugin_schema:
+        market_validator, plugin_validator = draft7_validators(market_schema, plugin_schema)
+    else:
+        market_validator, plugin_validator = None, None
+    market_ok = report_schema_errors("marketplace.json", market_validator, market)
+    plugin_ok = report_schema_errors("plugin.json", plugin_validator, plugin)
+    reject_unsupported_marketplace_entry(market_validator)
+    if market_ok and plugin_ok and not errors:
+        print(f"SCHEMA Cursor manifests against cursor/plugins {SCHEMA_REVISION}: PASS")
     if plugin.get("name") != "akb" or not NAME_RE.fullmatch(plugin.get("name", "")):
         fail("plugin.json name must be akb")
     if not SEMVER_RE.fullmatch(str(plugin.get("version", ""))):

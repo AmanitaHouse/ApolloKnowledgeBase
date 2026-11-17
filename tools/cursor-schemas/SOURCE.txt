@@ -1,0 +1,13 @@
+Pinned snapshots of the Cursor plugin manifest schemas.
+
+Vendor repository: https://github.com/cursor/plugins
+Revision: 5229aad76c37451561c5b81a9b5072ae1c549a5b
+Retrieved: 2026-11-18
+
+Files, at that revision:
+  schemas/marketplace.schema.json -> marketplace.schema.json
+  schemas/plugin.schema.json -> plugin.schema.json
+
+That revision is the latest commit that changes either schema file.
+tools/check_cursor_plugin.py validates the manifests in this repository
+against these snapshots. It does not fetch the schemas at runtime.
