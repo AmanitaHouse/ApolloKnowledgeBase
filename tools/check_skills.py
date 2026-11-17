@@ -5,7 +5,8 @@ For every skills/<name>/SKILL.md:
   - frontmatter with exactly the fields name and description;
   - name equals the folder name: lowercase letters, digits, single hyphens,
     at most 64 characters;
-  - description not empty, at most 1024 characters;
+  - description not empty, at most 1024 characters, one YAML line
+    (a folded scalar is a different shape for some agents);
   - body at most 500 lines;
   - every path in backticks that names a knowledge base file (`KB <path>`, or
     a path starting with a knowledge base folder) exists, and every file of
@@ -27,6 +28,18 @@ KB_TOP = ("core/", "hardware/", "os/", "toolchain/", "guides/", "examples/",
           "conventions/", "lessons/", "templates/", "tools/", "skills/")
 KB_FILES = ("AGENTS.md", "CONTRIBUTING.md", "README.md")
 OWN = ("assets/", "scripts/", "references/")
+
+
+def description_line(raw):
+    """Reject a description that continues onto an indented next line."""
+    lines = raw.splitlines()
+    indexes = [i for i, line in enumerate(lines) if line.startswith("description:")]
+    if len(indexes) != 1:
+        return "description must be one frontmatter line"
+    index = indexes[0]
+    if index + 1 < len(lines) and lines[index + 1][:1] in (" ", "\t"):
+        return "description continues on the next line; keep it a single YAML scalar"
+    return None
 
 
 def paths_in(body):
@@ -75,8 +88,12 @@ def check(name, errors):
     desc = fm.get("description")
     if not isinstance(desc, str) or not desc.strip():
         errors.append(f"{rel}: description is missing")
-    elif len(desc) > 1024:
-        errors.append(f"{rel}: description is {len(desc)} characters, at most 1024")
+    else:
+        if len(desc) > 1024:
+            errors.append(f"{rel}: description is {len(desc)} characters, at most 1024")
+        problem = description_line(m.group(1))
+        if problem:
+            errors.append(f"{rel}: {problem}")
     lines = body.count("\n") + 1
     if lines > 500:
         errors.append(f"{rel}: body is {lines} lines, at most 500")

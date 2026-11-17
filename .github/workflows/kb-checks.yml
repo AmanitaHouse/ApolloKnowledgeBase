@@ -32,6 +32,12 @@ jobs:
         run: python tools/check_skills.py
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Shared skill workflows
+        run: python tools/check_shared_workflows.py
+      - name: Cursor plugin manifests (static)
+        run: python tools/check_cursor_plugin.py
+      - name: Claude plugin manifests (static)
+        run: python tools/check_claude_plugin.py
       - name: Markdown lint
         uses: DavidAnson/markdownlint-cli2-action@v25
         with:

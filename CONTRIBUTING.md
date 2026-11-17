@@ -78,6 +78,12 @@ Not content: `templates/` (file, repo and seed templates), `sources/`
 skills, step 2), `evals/` (AI benchmarks, step 5), `tools/` (CI scripts,
 and the V4 test runner in `tools/v4/`).
 
+`docs/` is operational documentation: how to install or check an editor
+plugin. It is not Apollo V4 knowledge, it is not written from
+`templates/files/`, and it has no knowledge-base frontmatter. The Cursor
+guide is `docs/cursor-plugin.md`. `rules/` holds editor rules that point
+at `AGENTS.md`. Those rules are not knowledge-base content either.
+
 Each chip folder keeps its register map in `registers.md` inside that folder.
 The official SAGA register documentation is generated into
 `core/saga-registers/` (document intake, section 11); the chip folders link
@@ -147,8 +153,10 @@ hardware programming during a takeover goes in `core/`. Both use
 
 ## 4. Frontmatter
 
-Every file starts with YAML frontmatter. CI rejects files with missing
-required fields or invalid values.
+Every knowledge-base content file starts with YAML frontmatter. CI rejects
+content files with missing required fields or invalid values. Operational
+documentation does not use this frontmatter: `docs/`, `README.md`,
+`AGENTS.md` and this file (section 2).
 
 ```yaml
 ---
@@ -407,7 +415,11 @@ On every merge to `main`, `generate_codeowners.py` regenerates
 `.github/CODEOWNERS.base`.
 
 The `seed/`, `sources/` and `templates/` folders are excluded from content
-checks.
+checks. `docs/` and `rules/` are excluded from the content frontmatter
+check only (`tools/kblib.py`). They are operational documentation and
+editor rules, not knowledge-base files, so they do not take knowledge-base
+frontmatter. `docs/*.md` stays in the internal-link check and in Markdown
+lint. `tools/check_links.py` does not skip `docs/`.
 
 Run the checks locally before opening a pull request:
 
@@ -415,6 +427,10 @@ Run the checks locally before opening a pull request:
 pip install pyyaml
 python tools/check_frontmatter.py
 python tools/check_links.py
+python tools/check_skills.py
+python tools/check_shared_workflows.py
+python tools/check_cursor_plugin.py
+python tools/check_claude_plugin.py
 ```
 
 ---
@@ -485,20 +501,35 @@ skill points to it.
 - **Format:** the open Agent Skills format. One folder per skill,
   `skills/<name>/SKILL.md`, with frontmatter `name` (equal to the folder
   name: lowercase letters, digits and single hyphens) and `description`
-  (what the skill does and when to use it, at most 1024 characters). No
-  other frontmatter fields, so every agent can read it.
+  (what the skill does and when to use it, at most 1024 characters, on one
+  line). No other frontmatter fields, so every agent can read it.
 - **Description:** the agent decides from it alone whether to use the skill.
   Name the tasks and the words developers use, and say "even when it looks
   like ordinary m68k or Amiga work" where AGENTS.md section 2 applies.
 - **Body:** at most 500 lines. Point to knowledge base files as
   `KB <path>`; don't copy their content. Files of the skill itself
   (`scripts/`, `assets/`) are referenced relative to its folder.
-- **Scripts:** POSIX `sh`, no Claude-specific variables. Code in `assets/`
-  must build with ApolloCrossDev without warnings.
+- **Scripts:** POSIX `sh`, no Claude-specific variables. The file in
+  `skills/<name>/scripts/` is the entry point the skill runs. It may call
+  one shared program in `tools/` written with the Python standard library.
+  Both plugins use that same entry point. Do not put a second copy of the
+  program under `skills/`, and do not replace the `sh` entry point with a
+  Python script. Code in `assets/` must build with ApolloCrossDev without
+  warnings.
 - **New skills** are listed in AGENTS.md section 9 in the same pull request.
-- Claude Code installs `skills/` as the plugin `akb` (`.claude-plugin/`);
-  other agents read it through AGENTS.md section 9.
+- Claude Code installs `skills/` as the plugin `akb` (`.claude-plugin/`).
+- Cursor installs the same `skills/` as the plugin `akb`
+  (`.cursor-plugin/`). See [docs/cursor-plugin.md](docs/cursor-plugin.md).
+  The skill files stay the canonical workflow; do not keep a second copy
+  for one editor.
+- Other agents read the skills through AGENTS.md section 9.
 
 CI runs `tools/check_skills.py` on every pull request: frontmatter, name,
-description length, body length, and that every `KB <path>` and file of
-the skill exists.
+description length, a single-line description, body length, and that every
+`KB <path>` and file of the skill exists. It also runs
+`tools/check_shared_workflows.py` (those entry points, in a temporary
+directory), `tools/check_cursor_plugin.py` and
+`tools/check_claude_plugin.py` (plugin manifests). The manifest checks are
+static: they do not load Cursor or Claude Code. The workflow check prints
+`NOT VERIFIED` for a guided build when ApolloCrossDev is absent, and that
+line is not a successful compile.

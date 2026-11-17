@@ -229,14 +229,22 @@ knowledge base files it needs instead of repeating them.
 | `skills/apollo-build/` | Apollo V4 code is compiled, linked or assembled, flags come up, a build fails, or before presenting code |
 | `skills/akb-lesson/` | a project, release or milestone is done, the user asks for a summary, or an assumption from section 2 turned out wrong |
 
-If your agent loads skills by itself (Claude Code with the `akb` plugin,
-or an agent whose skills folder links to this `skills/` folder), it picks
-them up from their descriptions. If it doesn't, read
+If your agent loads skills by itself (Claude Code or Cursor with the `akb`
+plugin, or an agent whose skills folder links to this `skills/` folder), it
+picks them up from their descriptions. If it doesn't, read
 `skills/<name>/SKILL.md` when the task matches the table above, and follow
 it. Paths in a SKILL.md are relative to its own folder or, when marked
 `KB`, to the knowledge base root.
 
+A project reads its own `ApolloKnowledgeBase/` submodule when that submodule
+is initialized. That pin is authoritative. Otherwise the agent uses the
+knowledge base bundled with the installed `akb` plugin (Claude Code or
+Cursor). `tools/resolve_kb.py` prints which one, or the exact problem. The
+Cursor rule `rules/apollo-v4.mdc` only points at this file and those skills.
+
 Claude Code users install the skills once with
 `/plugin marketplace add ApolloTeam-dev/ApolloKnowledgeBase` and
 `/plugin install akb@apolloknowledgebase`; they are then called as
-`/akb:apollo-build` and so on.
+`/akb:apollo-build` and so on. Cursor users install the plugin as described
+in [docs/cursor-plugin.md](docs/cursor-plugin.md) and call `/apollo-new-project`,
+`/apollo-build`, and `/akb-lesson`.
