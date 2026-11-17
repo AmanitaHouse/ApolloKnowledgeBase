@@ -1,0 +1,23 @@
+{
+  "name": "apolloknowledgebase",
+  "owner": {
+    "name": "Apollo Team"
+  },
+  "metadata": {
+    "description": "ApolloKnowledgeBase for Cursor: the 68080, SAGA, ApolloOS, AmigaOS on V4, and ApolloCrossDev. This marketplace entry is the AmanitaHouse fork; the knowledge and the Claude plugin remain Apollo Team's."
+  },
+  "plugins": [
+    {
+      "name": "akb",
+      "source": ".",
+      "description": "Skills for Apollo V4 development: apollo-new-project, apollo-build, and akb-lesson. They read ApolloKnowledgeBase, which is this repository.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Apollo Team"
+      },
+      "homepage": "https://apolloknowledgebase.com",
+      "repository": "https://github.com/AmanitaHouse/ApolloKnowledgeBase",
+      "keywords": ["apollo", "vampire", "68080", "saga", "amiga", "apolloos"]
+    }
+  ]
+}
