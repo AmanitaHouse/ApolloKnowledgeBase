@@ -10,14 +10,7 @@
     {
       "name": "akb",
       "source": ".",
-      "description": "Skills for Apollo V4 development: apollo-new-project, apollo-build, and akb-lesson. They read ApolloKnowledgeBase, which is this repository.",
-      "version": "1.0.0",
-      "author": {
-        "name": "Apollo Team"
-      },
-      "homepage": "https://apolloknowledgebase.com",
-      "repository": "https://github.com/AmanitaHouse/ApolloKnowledgeBase",
-      "keywords": ["apollo", "vampire", "68080", "saga", "amiga", "apolloos"]
+      "description": "Skills for Apollo V4 development: apollo-new-project, apollo-build, and akb-lesson."
     }
   ]
 }

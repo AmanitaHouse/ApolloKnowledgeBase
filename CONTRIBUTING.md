@@ -424,7 +424,7 @@ lint. `tools/check_links.py` does not skip `docs/`.
 Run the checks locally before opening a pull request:
 
 ```sh
-pip install pyyaml
+pip install pyyaml jsonschema
 python tools/check_frontmatter.py
 python tools/check_links.py
 python tools/check_skills.py
