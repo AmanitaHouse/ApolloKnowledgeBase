@@ -136,6 +136,7 @@
 /core/pitfalls/ammx-pc-relative-source.md @TuKo1982
 /core/pitfalls/ammx-upper-32-bits.md @TuKo1982
 /core/pitfalls/bank-prefix-pitfalls.md @TuKo1982
+/core/pitfalls/cacr-data-cache-bit-ignored.md @WDrijver
 /core/pitfalls/double-memory-indirect.md @WDrijver
 /core/pitfalls/fpu-47-bit-context-save.md @TuKo1982
 /core/pitfalls/fpu-broken-instructions.md @TuKo1982
