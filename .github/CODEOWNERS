@@ -214,6 +214,7 @@
 /toolchain/pitfalls/float-settings-mismatch.md @TuKo1982
 /toolchain/pitfalls/gcc-bbb-autoinc.md @TuKo1982
 /toolchain/pitfalls/gcc-bbb-shift-wrong-code.md @TuKo1982
+/toolchain/pitfalls/gcc-btst-memory-bit-number.md @WDrijver
 /toolchain/pitfalls/gcc-dbra-address-register-loop.md @TuKo1982
 /toolchain/pitfalls/gcc-fsincos-ice.md @TuKo1982
 /toolchain/pitfalls/gcc-misc-traps.md @TuKo1982
