@@ -19,6 +19,16 @@
 #   2. two folders above the project (the project is in ApolloCrossDev/Projects/)
 #   3. $HOME/ApolloCrossDev
 
+# Git Bash cannot run the Linux compiler. Re-exec in WSL when python3 works there.
+_akb_tools=$(CDPATH= cd -- "$(dirname "$0")/../../../tools" 2>/dev/null && pwd || true)
+if [ -n "$_akb_tools" ] && [ -f "$_akb_tools/wsl_reexec.sh" ]; then
+    # shellcheck disable=SC1091
+    . "$_akb_tools/wsl_reexec.sh"
+    _akb_script=$(CDPATH= cd -- "$(dirname "$0")" && pwd)/$(basename "$0")
+    akb_wsl_reexec "$_akb_script" "$@"
+fi
+unset _akb_tools _akb_script
+
 offline=0
 [ "$1" = "--offline" ] && { offline=1; shift; }
 project=${1:-.}
@@ -47,11 +57,14 @@ for b in m68k-amigaos-gcc m68k-amigaos-g++ vasmm68k_mot; do
 done
 [ -x "$prefix/bin/m68k-amigaos-gcc" ] && echo "GCC=$("$prefix/bin/m68k-amigaos-gcc" --version | head -n 1)"
 
-# when the compiler was built (UTC), from the gcc binary's file time
+# when the compiler was built (UTC), from the gcc binary's file time.
+# GNU stat is tried first. Its -f flag prints a filesystem report and
+# fails, and a command substitution would keep that report along with the
+# epoch, so the timestamp would be empty and UPDATE=compiler would not run.
 built=""
 if [ -f "$prefix/bin/m68k-amigaos-gcc" ]; then
-    t=$(stat -f %m "$prefix/bin/m68k-amigaos-gcc" 2>/dev/null || stat -c %Y "$prefix/bin/m68k-amigaos-gcc" 2>/dev/null)
-    built=$(date -u -r "$t" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$t" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)
+    t=$(stat -c %Y "$prefix/bin/m68k-amigaos-gcc" 2>/dev/null || stat -f %m "$prefix/bin/m68k-amigaos-gcc" 2>/dev/null)
+    built=$(date -u -d "@$t" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$t" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)
     [ -n "$built" ] && echo "BUILT=$built"
 fi
 
@@ -85,6 +98,15 @@ if [ -n "$built" ] && git -C "$root" rev-parse HEAD >/dev/null 2>&1; then
             break
         fi
     done
+fi
+
+# PR #26 and PR #28 live in these patch files. A binary older than the
+# checkout is already reported above. A checkout that does not contain the
+# files cannot show that the binary was built with them, even when the
+# binary is newer than this checkout.
+if [ ! -f "$root/Compilers/_archives/patches/m68k-btst-mem-offset-fix.patch" ] \
+    || [ ! -f "$root/Compilers/_archives/patches/reload-ind-equiv-offset-fix.patch" ]; then
+    echo "NOTE=this ApolloCrossDev checkout has no m68k-btst-mem-offset-fix.patch (pull request #26) or no reload-ind-equiv-offset-fix.patch (pull request #28), so the installed GCC-6.50-Dev binary is not shown to include those fixes. A checkout that has the files is still not a rebuilt compiler."
 fi
 
 # updates on GitHub

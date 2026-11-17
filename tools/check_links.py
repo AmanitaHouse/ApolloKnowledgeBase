@@ -8,6 +8,9 @@ from kblib import ROOT, report
 
 LINK_RE = re.compile(r"(?<!!)\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 FENCE_RE = re.compile(r"^(```|~~~).*?^\1", re.DOTALL | re.MULTILINE)
+# seed/ is not content. docs/ is operational documentation and stays
+# included: a broken link there is still a broken link. Do not add docs
+# or rules here. Content frontmatter uses a different skip list (kblib).
 SKIP_DIRS = {".git", "node_modules", "seed"}
 
 

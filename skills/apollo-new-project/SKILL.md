@@ -9,14 +9,46 @@ Create a project that every AI agent can work in correctly from the first
 prompt: it treats ApolloKnowledgeBase (AKB) as the central source of Apollo
 V4 knowledge, knows its target, and builds with ApolloCrossDev.
 
-**Where the files are.** You may have this skill as a local copy (an AKB
-clone, the Claude Code plugin `akb`) or only from its URL on GitHub. Either
-way, from step 2 on use the project's own `ApolloKnowledgeBase/` submodule:
-**KB** paths below are relative to it, and this skill's files are in
-`ApolloKnowledgeBase/skills/apollo-new-project/assets/`, and the toolchain
-check is `ApolloKnowledgeBase/skills/apollo-build/scripts/find-acd.sh`. In step
-1, before the submodule exists, read KB files on GitHub if you need them:
-`https://raw.githubusercontent.com/ApolloTeam-dev/ApolloKnowledgeBase/main/<path>`.
+**Knowledge root.** The installed plugin directory is not the user's
+project. **KB** paths are relative to the root printed by
+`KB tools/resolve_kb.py`. Run that program with the host launch below
+and the project directory.
+
+**Host launch.** Use this for every `sh` entry point and every Python
+program this skill names. Linux, macOS, a shell that is already WSL, and
+Git Bash run `sh` on an entry point and `python3` on a program. Git Bash
+(`MSYSTEM` set) still re-execs into WSL through `tools/wsl_reexec.sh`.
+Do not call `wsl.exe` from those shells.
+
+Windows PowerShell does not have `sh`. Its `python` and `python3`
+commands are often Windows Store aliases and do not run Python. From
+that shell, translate each Windows path and run `wsl.exe -e sh` for an
+entry point or `wsl.exe -e python3` for a program. A path that starts
+with `/` is unchanged. `X:\a\b` and `X:/a/b` become `/mnt/x/a/b`:
+lowercase the drive letter and replace `\` with `/`. In PowerShell, pass
+each translated path as one single-quoted argument. A single quote that
+belongs to the path is written twice, so spaces and quotation marks stay
+inside the argument. The plugin directory is the directory that contains
+`.cursor-plugin/plugin.json` beside the loaded skill. Do not hard-code a
+user name, a project location, or a drive letter. The same contract is
+[Host launch](../../docs/cursor-plugin.md#host-launch).
+
+The resolver lives in `tools/` at the root of this skill's repository (the
+installed `akb` plugin, in Claude Code or Cursor, or an AKB checkout).
+From step 2 on, an initialized `ApolloKnowledgeBase/` submodule is that
+root (`KB_SOURCE=submodule`). Before the submodule exists, the same
+command reports the bundled plugin (`KB_SOURCE=plugin`); use it for
+`KB templates/repo/AGENTS.md` and the other template files. Skill assets
+that are not in the submodule yet are next to this file: `assets/` and
+`scripts/write-project-files.sh`. The toolchain check is
+`KB skills/apollo-build/scripts/find-acd.sh`. If the resolver prints
+`PROBLEM=`, stop and follow every `RECOVERY=` line. Do not guess paths.
+
+**Which repository the submodule tracks.** On this fork the default is
+`https://github.com/AmanitaHouse/ApolloKnowledgeBase`. Say that once. If
+the developer asks for the original Apollo Team repository, use
+`https://github.com/ApolloTeam-dev/ApolloKnowledgeBase` instead. Do not
+change the remote afterwards unless they ask.
 
 ## 0. Guided or basic setup
 
@@ -30,22 +62,26 @@ First ask which setup the developer wants:
   and 3, without questions. The developer does the rest (toolchain,
   Makefile, code).
 
-For a basic setup, skip step 1. In `AGENTS.md` (step 3), fill in the project
-name (the folder's name) and the defaults from the table in step 1, and
-write `not set yet` for what it is, kind, execution mode and languages,
-with this line under the list: "Fields marked `not set yet`: ask the
-developer before relying on them, and fill them in." Leave out the build
-commands and write "Not set up yet: use the apollo-build skill when the
-project gets a Makefile." Then go to step 8: show the files, offer a first
-commit, and mention that the guided setup can still check ApolloCrossDev
-and add a Makefile and a starting program later.
+For a basic setup, skip step 1. Run `scripts/write-project-files.sh` with
+the host launch, `--project` set to the project directory, and
+`--setup basic`. When that directory's name does not match the rule in
+step 1, also pass `--name` with a name that does. Do not rename or move
+the directory. It fills `AGENTS.md`
+with the folder name, the defaults from the table in step 1, and
+`not set yet` for what it is, kind, execution mode and languages. Then
+go to step 8: show the files, offer a first commit, and mention that the
+guided setup can still check ApolloCrossDev and add a Makefile and a
+starting program later.
 
 ## 1. Ask what the project is (guided setup)
 
 Ask these four in one go, and suggest the defaults in brackets:
 
 1. **Project name** [the current folder's name]: becomes `PROJECT_NAME` and
-   the program's name. Letters, digits, `-` or `_`, no spaces.
+   the program's name. Letters, digits, `-` or `_`, no spaces. The first
+   character must be a letter or digit, so a folder name that begins with
+   `_` or `-` is rejected. Pass `--name` with a compliant name and leave
+   the directory where it is.
 2. **What it is**, in one sentence, and its **kind**: game, demo, tool,
    application, library, device or datatype.
 3. **Execution mode**: `os-takeover` (games and demos: multitasking off,
@@ -66,61 +102,53 @@ can change them later in `AGENTS.md`:
 
 ## 2. Create the repository with AKB
 
-In the current folder:
+In the current folder, and only there:
 
 ```sh
 git init
-git submodule add https://github.com/ApolloTeam-dev/ApolloKnowledgeBase ApolloKnowledgeBase
+git submodule add <the URL from the knowledge-root section> ApolloKnowledgeBase
+git submodule update --init ApolloKnowledgeBase
 ```
 
 If the folder already holds code, don't overwrite anything: add only what is
 missing and show the user what you would change. If it is already a git
-repository, skip `git init`.
+repository, skip `git init`. If `ApolloKnowledgeBase/` is already a
+submodule, do not add it again and do not change its URL.
+
+Never run `sudo`, never edit shell startup files, and never change a git
+remote unless the developer agrees in this conversation.
 
 ## 3. Make AKB the agents' central source
 
-These files make every agent that opens the project read AKB first.
+Run `scripts/write-project-files.sh` with the host launch after the
+submodule is initialized, so the templates come from that pin
+(`KB_SOURCE=submodule`). Pass
+`--project` and `--setup guided`, plus `--name` when the directory name
+breaks the rule in step 1. Do not rename or move the directory. It writes only
+files that do not exist yet. If it prints `SKIPPED=` because a file exists,
+show the developer the diff you would apply and wait. Do not pass any flag
+that overwrites, and do not write the files by hand over theirs.
 
-- **`AGENTS.md`** (read by most agents): from `KB templates/repo/AGENTS.md`.
-  Fill in every `<placeholder>` from step 1 and its defaults, remove the
-  template's HTML comments.
-  - **Build and test:** `make compile` to build, `make` to build and upload
-    to the V4 at `$AMIGAHOST`.
-  - **Relevant knowledge base areas:** pick from the table in
-    `KB AGENTS.md` section 3. Always `toolchain/`; `os/os-takeover.md` and
-    `core/` for os-takeover; the SAGA folders that the program will use;
-    `toolchain/apollolib/`.
-  - **Repository-specific rules:** the user's rules, or remove the section's
-    placeholder line.
-- **`CLAUDE.md`** (Claude Code): copy `KB templates/repo/CLAUDE.md` as it is.
-  It loads both AGENTS.md files.
-- **`.claude/settings.json`** (Claude Code): offers the AKB skills to
-  everyone who opens the project. Each person installs the plugin once with
-  `/plugin install akb@apolloknowledgebase`; Claude Code reminds them.
+- **`AGENTS.md`** (Cursor and most other agents): from
+  `KB templates/repo/AGENTS.md`, placeholders filled, HTML comments removed.
+- **`.cursor/rules/apollo-v4.mdc`** (Cursor): a short project rule that
+  points at `ApolloKnowledgeBase/AGENTS.md` and the three akb skills. Cursor
+  does not need `.claude/settings.json`.
+- **`CLAUDE.md` and `.claude/settings.json`** (Claude Code only): optional.
+  The script writes them unless you pass `--no-claude`. Skip them when the
+  developer does not want Claude Code files. The settings repository slug
+  matches the submodule URL from step 2. Cursor never reads these files.
 
-  ```json
-  {
-    "extraKnownMarketplaces": {
-      "apolloknowledgebase": {
-        "source": { "source": "github", "repo": "ApolloTeam-dev/ApolloKnowledgeBase" }
-      }
-    },
-    "enabledPlugins": {
-      "akb@apolloknowledgebase": true
-    }
-  }
-  ```
-
-Other agents reach the AKB skills through `KB AGENTS.md` section 9, which
-the project's AGENTS.md sends them to.
+For a guided setup the script also writes `main.c` and `.gitignore` from
+`assets/`. Pass `--makefile-template` only in step 5, after ApolloCrossDev
+has been found. A basic setup stops after `AGENTS.md`, the Cursor rule, and
+the optional Claude files.
 
 ## 4. ApolloCrossDev: check, install or update (guided setup)
 
-Run the check from the submodule:
-
-```sh
-sh ApolloKnowledgeBase/skills/apollo-build/scripts/find-acd.sh
-```
+Run `KB skills/apollo-build/scripts/find-acd.sh` from the submodule with
+the host launch. On PowerShell that is `wsl.exe -e sh` and the translated
+script path. On Linux, macOS, WSL, and Git Bash it is `sh`.
 
 Tell the user what you found and let them choose:
 
@@ -146,7 +174,8 @@ consent. For this session, pass it on the command line:
 
 ## 5. Makefile (guided setup)
 
-Copy `<ACD_ROOT>/Projects/_makefiles/Makefile` and change only:
+Copy `<ACD_ROOT>/Projects/_makefiles/Makefile` by re-running the script with
+`--makefile-template` set to that file. It changes only:
 
 | Line | Set to |
 |---|---|
@@ -154,12 +183,13 @@ Copy `<ACD_ROOT>/Projects/_makefiles/Makefile` and change only:
 | `C_INCL_NDK` | the `ndk39-include` line: AmigaOS 3.9 is a target, so a function that 3.9 lacks gives a compile error instead of a crash on 3.9 (`KB toolchain/target-os-headers.md`) |
 | `C_COMPILER` | the `m68k-amigaos-g++` line for C++; the template does not collect `.cpp` files, so add them as `KB toolchain/project-makefile.md` says |
 
-Keep `APOLLOLIB`, `C_OPTIONS` and `S_FLAGS` as they are.
+It leaves `APOLLOLIB`, `C_OPTIONS` and `S_FLAGS` as they are. If the
+template has no `ndk39-include` line, it says so and does not invent one.
 
 ## 6. The starting program (guided setup)
 
-Copy one file from this skill's `assets/` to `main.c` and replace
-`@PROJECT@`, `@WHAT@` and `@TARGETS@` (core, model, target OS):
+The script copies one file from `assets/` to `main.c` and replaces
+`@PROJECT@`, `@WHAT@` and `@TARGETS@`:
 
 | Mode | File |
 |---|---|
@@ -170,19 +200,26 @@ The takeover programs leave the display takeover open on purpose: the KB
 doesn't document it yet (`KB os/os-takeover.md`). Tell the user, and don't
 fill it in from general Amiga knowledge.
 
-Copy `assets/gitignore` to `.gitignore`.
+It also copies `assets/gitignore` to `.gitignore`.
 
 ## 7. Build it (guided setup)
 
 Build as the apollo-build skill describes (`KB skills/apollo-build/SKILL.md`):
-`make compile`. It must end with no errors and no warnings before you
-continue.
+`make compile` when the Makefile has that target. It must end with no
+errors and no warnings before you continue. Do not run `make` or
+`make debug`: they upload to the V4. If the template is older than v1.2 and
+has no `compile` target, follow the apollo-build skill for
+`make cleanbefore build`, and only when that target does not upload.
 
 ## 8. Hand over
 
 - Show the user the files you made and, for a guided setup, the build
-  result.
+  result. Never claim the build succeeded unless you ran it and it printed
+  no errors and no warnings.
 - Offer a first commit; commit only when they agree.
-- Tell them how to work from here: open the project folder in their agent,
-  which now reads AKB first; `git submodule update --remote ApolloKnowledgeBase`
-  brings in newer AKB content when they want it.
+- Tell them how to work from here: open the project folder in Cursor (or
+  Claude Code). Cursor reads `AGENTS.md` and `.cursor/rules/apollo-v4.mdc`
+  and, with the akb plugin installed, the three skills. Claude Code uses
+  `CLAUDE.md` and `.claude/settings.json` when those files were written.
+  `git submodule update --remote ApolloKnowledgeBase` brings in newer AKB
+  content when they want it.

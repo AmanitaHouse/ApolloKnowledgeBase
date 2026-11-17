@@ -66,6 +66,23 @@ execution mode (`os-friendly` or `os-takeover`) and V4 model it applies to.
 AI agents working in that repository then find and follow the knowledge base
 automatically.
 
+Claude Code and Cursor load the same three skills as the plugin `akb`.
+These are the entry points. The procedures stay in the skill files.
+
+- Claude Code: `/plugin marketplace add ApolloTeam-dev/ApolloKnowledgeBase`,
+  then `/plugin install akb@apolloknowledgebase`. The skills are
+  `/akb:apollo-new-project`, `/akb:apollo-build` and `/akb:akb-lesson`.
+  On this fork, point that marketplace at
+  `AmanitaHouse/ApolloKnowledgeBase` when you want these adaptations.
+  The marketplace name stays `apolloknowledgebase` (`AGENTS.md` section 9).
+- Cursor: install `akb` as described in
+  [docs/cursor-plugin.md](docs/cursor-plugin.md), then
+  `/apollo-new-project`, `/apollo-build` and `/akb-lesson`.
+
+`apollo-new-project` on this fork tracks
+`https://github.com/AmanitaHouse/ApolloKnowledgeBase` unless the developer
+asks for `https://github.com/ApolloTeam-dev/ApolloKnowledgeBase`.
+
 ---
 
 ## Contributing
