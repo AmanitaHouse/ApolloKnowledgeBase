@@ -6,3 +6,35 @@
 # files already contain trailing spaces. Do not rewrite the copies to satisfy
 # a whitespace check. tools/package_cursor_plugin.py
 akb/sources/official/** -whitespace
+
+# These generated copies are stored with the same CRLF bytes as their
+# canonical files. Git must not normalise them to LF.
+akb/sources/official/saga-registers/audnvol.htm -text
+akb/sources/official/saga-registers/audxvol.htm -text
+akb/sources/official/saga-registers/beamcon0.htm -text
+akb/sources/official/saga-registers/bltddat.htm -text
+akb/sources/official/saga-registers/bplcon0.htm -text
+akb/sources/official/saga-registers/bplcon1.htm -text
+akb/sources/official/saga-registers/bplcon2.htm -text
+akb/sources/official/saga-registers/bplcon3.htm -text
+akb/sources/official/saga-registers/bplxdat.htm -text
+akb/sources/official/saga-registers/bplxmod.htm -text
+akb/sources/official/saga-registers/bplxpth.htm -text
+akb/sources/official/saga-registers/colorx.htm -text
+akb/sources/official/saga-registers/diwhigh.htm -text
+akb/sources/official/saga-registers/dskdatr.htm -text
+akb/sources/official/saga-registers/hbstrt.htm -text
+akb/sources/official/saga-registers/hcenter.htm -text
+akb/sources/official/saga-registers/hsstop.htm -text
+akb/sources/official/saga-registers/hsstrt.htm -text
+akb/sources/official/saga-registers/htotal.htm -text
+akb/sources/official/saga-registers/joy0dat.htm -text
+akb/sources/official/saga-registers/sprxctl.htm -text
+akb/sources/official/saga-registers/sprxdata.htm -text
+akb/sources/official/saga-registers/sprxpos.htm -text
+akb/sources/official/saga-registers/sprxpth.htm -text
+akb/sources/official/saga-registers/vbstrt.htm -text
+akb/sources/official/saga-registers/vhposr.htm -text
+akb/sources/official/saga-registers/vposr.htm -text
+akb/sources/official/saga-registers/vsstrt.htm -text
+akb/sources/official/saga-registers/vtotal.htm -text
