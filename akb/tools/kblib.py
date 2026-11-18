@@ -1,0 +1,106 @@
+"""Shared helpers for ApolloKnowledgeBase CI scripts."""
+import json
+import os
+import re
+import sys
+
+import yaml
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+# Top-level files and folders that are not knowledge base content.
+# docs/ and rules/ are operational documentation and editor rules. This skip
+# is the content-frontmatter walk only. tools/check_links.py and Markdown
+# lint still read docs/*.md. akb/ is the generated Cursor package
+# (tools/package_cursor_plugin.py), not a second set of articles.
+# See CONTRIBUTING.md sections 2 and 10.
+SKIP_TOP_FILES = {"README.md", "AGENTS.md", "CONTRIBUTING.md", "CLAUDE.md"}
+SKIP_DIRS = {"templates", "seed", "sources", "tools", "skills", "evals", "build",
+             "docs", "rules", ".github", ".git", "akb"}
+
+# The rules live in tools/schema.json, shared with the ApolloKnowledgeBase-
+# Manager wizard.
+with open(os.path.join(ROOT, "tools", "schema.json"), encoding="utf-8") as _f:
+    SCHEMA = json.load(_f)
+
+# The four knowledge pillars. Files in a pillar are references, except in
+# its best-practices/ and pitfalls/ subfolders.
+PILLARS = set(SCHEMA["pillars"])
+PILLAR_SUBFOLDER_TYPES = dict(SCHEMA["pillar_subfolder_types"])
+
+# Expected `type` per cross-cutting top-level folder.
+FOLDER_TYPES = dict(SCHEMA["folder_types"])
+
+MAINTAINERS_FILE = os.path.join(ROOT, ".github", "CODEOWNERS.base")
+
+
+def expected_type(path):
+    """Return the `type` a content file must have, from its folder, or None
+    if the file is outside the known content folders."""
+    parts = path.split(os.sep)
+    if parts[0] in PILLARS:
+        if len(parts) > 2 and parts[1] in PILLAR_SUBFOLDER_TYPES:
+            return PILLAR_SUBFOLDER_TYPES[parts[1]]
+        return "reference"
+    return FOLDER_TYPES.get(parts[0])
+
+
+def maintainers():
+    """Return the maintainer handles: the owners of `*` in CODEOWNERS.base."""
+    with open(MAINTAINERS_FILE, encoding="utf-8") as f:
+        for line in f:
+            fields = line.split()
+            if fields and fields[0] == "*":
+                return {h.lstrip("@") for h in fields[1:]}
+    return set()
+
+
+HANDLE_RE = re.compile(SCHEMA["handle_pattern"])
+
+FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
+
+
+def content_files():
+    """Yield repo-relative paths of all knowledge base content files, in the
+    same order on every platform."""
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        rel_dir = os.path.relpath(dirpath, ROOT)
+        top = rel_dir.split(os.sep)[0]
+        if rel_dir == ".":
+            dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
+        elif top in SKIP_DIRS:
+            continue
+        else:
+            dirnames.sort()
+        for name in sorted(filenames):
+            if not name.endswith(".md"):
+                continue
+            if rel_dir == "." and name in SKIP_TOP_FILES:
+                continue
+            yield os.path.normpath(os.path.join(rel_dir, name))
+
+
+def read(path):
+    with open(os.path.join(ROOT, path), encoding="utf-8") as f:
+        return f.read()
+
+
+def frontmatter(text):
+    """Return (dict, body) or (None, text) if there is no frontmatter.
+    Raises yaml.YAMLError on invalid YAML."""
+    m = FRONTMATTER_RE.match(text)
+    if not m:
+        return None, text
+    data = yaml.safe_load(m.group(1)) or {}
+    return data, text[m.end():]
+
+
+def report(errors):
+    """Print errors in GitHub annotation format and exit accordingly."""
+    for path, msg in errors:
+        print(f"::error file={path}::{msg}")
+        print(f"{path}: {msg}", file=sys.stderr)
+    if errors:
+        print(f"\n{len(errors)} error(s).", file=sys.stderr)
+        sys.exit(1)
+    print("OK")

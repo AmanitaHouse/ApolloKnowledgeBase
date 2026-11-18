@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "akb",
-      "source": ".",
+      "source": "akb",
       "description": "Skills for Apollo V4 development: apollo-new-project, apollo-build, and akb-lesson."
     }
   ]

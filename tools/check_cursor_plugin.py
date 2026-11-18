@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Static checks for the Cursor plugin manifests and the project rule.
+"""Static checks for the Cursor plugin manifests, the generated akb/ package,
+and a disposable copy of that package.
 
-This does not load Cursor, does not run the skills, and does not compile.
-Workflow execution is tools/check_shared_workflows.py. A passing run here
-is not evidence that a skill ran inside Cursor.
+This does not load Cursor and does not compile. The canonical skill
+workflows are tools/check_shared_workflows.py. This file also copies only
+akb/ to a temporary plugins/local/akb tree and runs the skill programs
+there, so a passing install section is not a Cursor Customize session.
 
 Marketplace and plugin manifests are checked with a JSON Schema validator
 against the pinned Cursor schemas in tools/cursor-schemas/. Those files are
@@ -166,19 +168,62 @@ def check_manifests():
     if entry.get("name") != "akb":
         fail("marketplace plugin name must be akb")
     source = entry.get("source")
-    if not isinstance(source, str) or source in ("",) or ".." in source.replace("\\", "/").split("/"):
-        fail(f"marketplace source is not a safe relative path: {source!r}")
+    source_problem = named_directory_source(source)
+    if source_problem:
+        fail(source_problem)
         return
     plugin_dir = os.path.abspath(os.path.join(ROOT, source))
     manifest = os.path.join(plugin_dir, ".cursor-plugin", "plugin.json")
-    if os.path.normpath(plugin_dir) != os.path.normpath(ROOT) or not os.path.isfile(manifest):
-        fail("marketplace source must resolve to this repository's .cursor-plugin/plugin.json")
+    if os.path.normpath(plugin_dir) == os.path.normpath(ROOT):
+        fail("marketplace source must be a subdirectory, not the repository root")
+        return
+    if os.path.islink(plugin_dir) or os.path.islink(manifest):
+        fail("marketplace source must be a real directory, not a symlink")
+        return
+    if not os.path.isdir(plugin_dir) or not os.path.isfile(manifest):
+        fail("marketplace source akb must contain .cursor-plugin/plugin.json")
+        return
+    try:
+        packaged = load_json(manifest)
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"akb plugin.json: {exc}")
+        return
+    report_schema_errors("akb/.cursor-plugin/plugin.json", plugin_validator, packaged)
+    if packaged.get("name") != "akb":
+        fail("akb/.cursor-plugin/plugin.json name must be akb")
+    if packaged.get("name") != plugin.get("name"):
+        fail("packaged plugin name must match the root plugin.json")
+    if packaged.get("repository") != plugin.get("repository"):
+        fail("packaged plugin.json repository must match the root manifest")
+    if "license" in packaged:
+        fail("akb/.cursor-plugin/plugin.json must not claim a license")
     if entry.get("repository") not in (None, DEFAULT_REPO):
         fail("marketplace repository must be the Apollo Team repository")
     if os.path.getsize(market_path) > 10 * 1024 * 1024:
         fail("marketplace.json exceeds 10 MB")
     if not errors:
         print("STATIC Cursor plugin and marketplace manifests: PASS")
+
+
+def named_directory_source(source):
+    """Return an error when source is not the named directory akb.
+
+    The GitHub indexer does not accept "." and may skip a source that
+    starts with "./". The installable plugin is the directory akb/.
+    """
+    if not isinstance(source, str):
+        return f"marketplace source must be the named directory akb, got {source!r}"
+    normalized = source.replace("\\", "/").strip()
+    if normalized in {"", ".", "./"} or normalized.startswith("./"):
+        return "marketplace source must be a named directory; '.' and './' are not indexed"
+    if normalized.startswith("/") or "://" in normalized or re.match(r"^[A-Za-z]:", normalized):
+        return f"marketplace source must be a relative directory name, got {source!r}"
+    parts = normalized.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        return f"marketplace source must be a named directory, got {source!r}"
+    if normalized != "akb":
+        return "marketplace source must be akb"
+    return None
 
 
 def check_rule_and_files():
@@ -221,14 +266,48 @@ def check_rule_and_files():
             fail(f"{rel} duplicates a program that belongs in tools/; keep the sh entry point")
 
 
+def check_package():
+    import package_cursor_plugin
+
+    for rel in package_cursor_plugin.REQUIRED_PACKAGE_PATHS:
+        path = os.path.join(ROOT, "akb", *rel.split("/"))
+        if os.path.islink(path):
+            fail(f"akb/{rel} must be a real file or directory, not a symlink")
+        elif not os.path.exists(path):
+            fail(f"akb/{rel} is missing from the distributable package")
+    for rel in package_cursor_plugin.FORBIDDEN_PACKAGE_PATHS:
+        path = os.path.join(ROOT, "akb", *rel.split("/"))
+        if os.path.exists(path):
+            fail(f"akb/{rel} must stay out of the distributable package")
+    problems = package_cursor_plugin.check_tree()
+    for item in problems:
+        fail(item)
+    if problems:
+        print("INSTALL disposable copy: SKIPPED")
+        print("REASON=akb/ does not match tools/package_cursor_plugin.py")
+        return
+    info = package_cursor_plugin.summary()
+    print(
+        f"PACKAGE files={info['files']} bytes={info['bytes']} "
+        f"duplicated_bytes={info['duplicated_bytes']}"
+    )
+    print("PACKAGE akb/ matches tools/package_cursor_plugin.py: PASS")
+    before = len(errors)
+    for item in package_cursor_plugin.verify_installed_copy():
+        fail(item)
+    if len(errors) == before:
+        print("INSTALL disposable akb/ copy: PASS")
+
+
 def main():
     print("SUITE cursor-plugin-static")
-    print("NOTE=manifest and rule checks only. This does not load the Cursor IDE and is not evidence that a skill ran.")
+    print("NOTE=manifest, package, and disposable-install checks. This does not load the Cursor IDE.")
     check_manifests()
     before = len(errors)
     check_rule_and_files()
     if len(errors) == before:
         print("STATIC Cursor rule and skill entry points: PASS")
+    check_package()
     print("LIVE Cursor plugin discovery: NOT VERIFIED")
     print("REASON=no Cursor plugin-host session was driven. Interactive Customize loading was not run.")
     print(f"{len(errors)} structural problems")

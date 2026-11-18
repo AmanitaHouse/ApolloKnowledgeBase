@@ -34,7 +34,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Shared skill workflows
         run: python tools/check_shared_workflows.py
-      - name: Cursor plugin manifests (static)
+      - name: Cursor plugin package
         run: python tools/check_cursor_plugin.py
       - name: Claude plugin manifests (static)
         run: python tools/check_claude_plugin.py
@@ -45,6 +45,7 @@ jobs:
             **/*.md
             !seed/**
             !templates/**
+            !akb/**
 
   compile-examples:
     # ApolloCrossDev supports Ubuntu 24.04 only.

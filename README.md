@@ -74,9 +74,10 @@ These are the entry points. The procedures stay in the skill files.
   `/akb:apollo-new-project`, `/akb:apollo-build` and `/akb:akb-lesson`.
   The marketplace name stays `apolloknowledgebase` (`AGENTS.md` section 9).
   Point that marketplace at another clone only when the developer asks.
-- Cursor: install `akb` as described in
+- Cursor: install the generated `akb/` directory as described in
   [docs/cursor-plugin.md](docs/cursor-plugin.md), then
   `/apollo-new-project`, `/apollo-build` and `/akb-lesson`.
+  The canonical skills and articles stay at the repository root.
 
 `apollo-new-project` tracks
 `https://github.com/ApolloTeam-dev/ApolloKnowledgeBase` unless the develope
