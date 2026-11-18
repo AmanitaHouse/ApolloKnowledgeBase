@@ -83,6 +83,8 @@ plugin. It is not Apollo V4 knowledge, it is not written from
 `templates/files/`, and it has no knowledge-base frontmatter. The Cursor
 guide is `docs/cursor-plugin.md`. `rules/` holds editor rules that point
 at `AGENTS.md`. Those rules are not knowledge-base content either.
+`akb/` is not content either. It is the generated Cursor install tree.
+`docs/cursor-plugin.md` says how it relates to these canonical files.
 
 Each chip folder keeps its register map in `registers.md` inside that folder.
 The official SAGA register documentation is generated into
@@ -419,7 +421,11 @@ checks. `docs/` and `rules/` are excluded from the content frontmatter
 check only (`tools/kblib.py`). They are operational documentation and
 editor rules, not knowledge-base files, so they do not take knowledge-base
 frontmatter. `docs/*.md` stays in the internal-link check and in Markdown
-lint. `tools/check_links.py` does not skip `docs/`.
+lint. `tools/check_links.py` does not skip `docs/`. `akb/` is the generated
+Cursor package. Content checks, the link check, and Markdown lint skip it.
+`tools/check_cursor_plugin.py` checks that directory against
+`tools/package_cursor_plugin.py` instead. Do not edit files under `akb/`
+by hand.
 
 Run the checks locally before opening a pull request:
 
@@ -429,6 +435,7 @@ python tools/check_frontmatter.py
 python tools/check_links.py
 python tools/check_skills.py
 python tools/check_shared_workflows.py
+python tools/package_cursor_plugin.py --check
 python tools/check_cursor_plugin.py
 python tools/check_claude_plugin.py
 ```
@@ -517,19 +524,23 @@ skill points to it.
   Python script. Code in `assets/` must build with ApolloCrossDev without
   warnings.
 - **New skills** are listed in AGENTS.md section 9 in the same pull request.
-- Claude Code installs `skills/` as the plugin `akb` (`.claude-plugin/`).
-- Cursor installs the same `skills/` as the plugin `akb`
-  (`.cursor-plugin/`). See [docs/cursor-plugin.md](docs/cursor-plugin.md).
-  The skill files stay the canonical workflow; do not keep a second copy
-  for one editor.
+- Claude Code installs the repository root as the plugin `akb`
+  (`.claude-plugin/`, marketplace source `./`).
+- Cursor's GitHub marketplace installs the generated directory `akb/`
+  (`.cursor-plugin/marketplace.json`, source `akb`). The canonical skill
+  files stay in `skills/`. `tools/package_cursor_plugin.py` copies them,
+  with the knowledge base and the shared programs, into `akb/`. Do not
+  edit `akb/` by hand and do not keep a separate skill text for Cursor.
+  See `docs/cursor-plugin.md`.
 - Other agents read the skills through AGENTS.md section 9.
 
 CI runs `tools/check_skills.py` on every pull request: frontmatter, name,
 description length, a single-line description, body length, and that every
 `KB <path>` and file of the skill exists. It also runs
 `tools/check_shared_workflows.py` (those entry points, in a temporary
-directory), `tools/check_cursor_plugin.py` and
-`tools/check_claude_plugin.py` (plugin manifests). The manifest checks are
-static: they do not load Cursor or Claude Code. The workflow check prints
+directory), `tools/check_cursor_plugin.py` (manifests, the generated
+`akb/` package, and a temporary copy of that package) and
+`tools/check_claude_plugin.py` (plugin manifests). Those checks do not
+load Cursor or Claude Code. The workflow check prints
 `NOT VERIFIED` for a guided build when ApolloCrossDev is absent, and that
 line is not a successful compile.

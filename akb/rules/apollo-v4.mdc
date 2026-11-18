@@ -1,0 +1,18 @@
+---
+description: Direct Apollo V4, 68080, SAGA, ApolloOS, AmigaOS on V4, and ApolloCrossDev work to ApolloKnowledgeBase and the akb skills. Do not use this for unrelated projects.
+alwaysApply: false
+---
+
+Use this only when the task is Apollo V4 software: the 68080, SAGA, ApolloOS, AmigaOS on V4, or ApolloCrossDev.
+
+The installed plugin directory is not the user's project. Resolve the knowledge base before reading it:
+
+1. Run `tools/resolve_kb.py` from this plugin (the directory that contains `.cursor-plugin/plugin.json`, `rules/`, `skills/`, and `tools/`) with the project directory as its argument. On Linux, macOS, WSL, and Git Bash, use `python3`. On Windows PowerShell, where `sh` and `python3` are missing or are Windows Store aliases, run `wsl.exe -e python3` after translating each Windows path (`X:\a\b` becomes `/mnt/x/a/b`; quote arguments that contain spaces). Do not hard-code a user name, a project location, or a drive letter. The same host launch is in `docs/cursor-plugin.md`.
+2. If it prints `KB_ROOT`, read `<KB_ROOT>/AGENTS.md` and follow that file's selection, evidence order, and platform safety rules. Read other knowledge-base files only when that file says they apply.
+3. If it prints `PROBLEM=`, stop and follow every `RECOVERY=` line. Do not invent registers, compiler flags, or API behaviour to fill the gap.
+
+Workflows, invoked as `/apollo-new-project`, `/apollo-build`, and `/akb-lesson`:
+
+- Set up or adapt a project with `apollo-new-project`.
+- Compile, assemble, or fix a build with `apollo-build`. Run `make compile` yourself when a build is claimed. Do not run `make` or `make debug` unless the user asks: those upload to hardware.
+- Draft a lesson with `akb-lesson`. Do not publish, push, or open a pull request until the user approves the exact text and names the destination.
