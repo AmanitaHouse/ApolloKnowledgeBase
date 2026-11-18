@@ -10,8 +10,10 @@ LINK_RE = re.compile(r"(?<!!)\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 FENCE_RE = re.compile(r"^(```|~~~).*?^\1", re.DOTALL | re.MULTILINE)
 # seed/ is not content. docs/ is operational documentation and stays
 # included: a broken link there is still a broken link. Do not add docs
-# or rules here. Content frontmatter uses a different skip list (kblib).
-SKIP_DIRS = {".git", "node_modules", "seed"}
+# or rules here. akb/ is the generated Cursor package. Its links are
+# checked by running the copy of this program inside akb/, where the
+# package is the root. Content frontmatter uses a different skip list.
+SKIP_DIRS = {".git", "node_modules", "seed", "akb"}
 
 
 def md_files():

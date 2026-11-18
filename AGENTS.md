@@ -247,4 +247,7 @@ Claude Code users install the skills once with
 `/plugin install akb@apolloknowledgebase`; they are then called as
 `/akb:apollo-build` and so on. Cursor users install the plugin as described
 in [docs/cursor-plugin.md](docs/cursor-plugin.md) and call `/apollo-new-project`,
-`/apollo-build`, and `/akb-lesson`.
+`/apollo-build`, and `/akb-lesson`. The Cursor marketplace package is the
+generated directory `akb/`. The canonical skills and knowledge files stay
+at this repository's root. `tools/package_cursor_plugin.py` writes `akb/`.
+Do not edit that directory by hand.

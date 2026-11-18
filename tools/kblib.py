@@ -11,10 +11,12 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 # Top-level files and folders that are not knowledge base content.
 # docs/ and rules/ are operational documentation and editor rules. This skip
 # is the content-frontmatter walk only. tools/check_links.py and Markdown
-# lint still read docs/*.md. See CONTRIBUTING.md sections 2 and 10.
+# lint still read docs/*.md. akb/ is the generated Cursor package
+# (tools/package_cursor_plugin.py), not a second set of articles.
+# See CONTRIBUTING.md sections 2 and 10.
 SKIP_TOP_FILES = {"README.md", "AGENTS.md", "CONTRIBUTING.md", "CLAUDE.md"}
 SKIP_DIRS = {"templates", "seed", "sources", "tools", "skills", "evals", "build",
-             "docs", "rules", ".github", ".git"}
+             "docs", "rules", ".github", ".git", "akb"}
 
 # The rules live in tools/schema.json, shared with the ApolloKnowledgeBase-
 # Manager wizard.

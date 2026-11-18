@@ -75,9 +75,10 @@ These are the entry points. The procedures stay in the skill files.
   On this fork, point that marketplace at
   `AmanitaHouse/ApolloKnowledgeBase` when you want these adaptations.
   The marketplace name stays `apolloknowledgebase` (`AGENTS.md` section 9).
-- Cursor: install `akb` as described in
+- Cursor: install the generated `akb/` directory as described in
   [docs/cursor-plugin.md](docs/cursor-plugin.md), then
   `/apollo-new-project`, `/apollo-build` and `/akb-lesson`.
+  The canonical skills and articles stay at the repository root.
 
 `apollo-new-project` on this fork tracks
 `https://github.com/AmanitaHouse/ApolloKnowledgeBase` unless the developer

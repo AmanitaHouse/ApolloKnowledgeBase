@@ -1,3 +1,8 @@
 # POSIX skill scripts must stay LF. A CR in the file is part of the command
 # for /bin/sh, so core.autocrlf must not rewrite them on checkout.
 *.sh text eol=lf
+
+# akb/sources/official/ is a byte copy of the official originals. Those HTML
+# files already contain trailing spaces. Do not rewrite the copies to satisfy
+# a whitespace check. tools/package_cursor_plugin.py
+akb/sources/official/** -whitespace

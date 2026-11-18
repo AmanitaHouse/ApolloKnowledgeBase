@@ -5,8 +5,10 @@ Apollo V4 knowledge and it has no knowledge-base frontmatter
 (`CONTRIBUTING.md` sections 2 and 4).
 
 The `akb` plugin packages ApolloKnowledgeBase for Cursor. It is the same
-knowledge base and the same three skills as the Claude Code plugin. Cursor
-discovers them from `.cursor-plugin/plugin.json`, `skills/`, and `rules/`.
+knowledge base and the same three skills as the Claude Code plugin. A
+GitHub marketplace install uses the generated `akb/` directory. Cursor
+discovers the skills from that directory's `.cursor-plugin/plugin.json`,
+`skills/`, and `rules/`.
 
 Apollo Team wrote the knowledge base and the original skills. This repository
 is the AmanitaHouse fork. The fork adds the Cursor package and points new
@@ -110,6 +112,41 @@ drive letter.
 runs in WSL and does not re-exec a second time. Git Bash remains the only
 shell that takes the `tools/wsl_reexec.sh` hop.
 
+## Canonical sources and the packaged plugin
+
+The skills, the knowledge articles, and the shared programs in `tools/`
+are maintained at the repository root. Claude Code installs that root
+(`.claude-plugin/`, source `./`).
+
+Cursor's GitHub marketplace indexer does not accept a plugin whose
+`source` is `.` or `./`. It installs a named directory. This repository's
+marketplace entry points at `akb/`. That directory is a generated,
+self-contained copy of the files the three skills need when Cursor copies
+only `akb/`.
+
+`tools/package_cursor_plugin.py` writes `akb/` from those canonical files.
+`akb/PACKAGE.txt` says the directory is generated. Do not edit anything
+under `akb/` by hand, and do not treat those copies as separate knowledge
+articles. Change the canonical file, then run the packaging script.
+`tools/check_cursor_plugin.py` fails when `akb/` is missing a file, has an
+extra file, or differs from a fresh run of the script.
+
+The root `.cursor-plugin/plugin.json` is the manifest the script copies to
+`akb/.cursor-plugin/plugin.json`. A full checkout still has a plugin
+manifest at its root. The marketplace file stays at the repository root
+and is not copied into `akb/`.
+
+The package includes the three skills and their assets, `rules/`, the
+programs those skills run, the templates they fill, and the knowledge
+base those skills read when a project has no submodule: `AGENTS.md`,
+`CONTRIBUTING.md`, the four pillars, guides, examples, conventions,
+lessons, `sources/`, and this file.
+
+It does not include `.claude-plugin/`, CI workflows, the document-intake
+converters, the V4 test runner, or `evals/`. Those stay canonical. The
+installed plugin does not need them to set up a project, resolve the
+knowledge base, find ApolloCrossDev, or check a lesson.
+
 ## Local development installation
 
 Cursor does not follow a symlink in `~/.cursor/plugins/local` that points at a
@@ -121,7 +158,7 @@ macOS and Linux:
 rm -rf ~/.cursor/plugins/local/akb
 mkdir -p ~/.cursor/plugins/local
 git clone https://github.com/AmanitaHouse/ApolloKnowledgeBase.git /tmp/akb-src
-rsync -a --exclude .git /tmp/akb-src/ ~/.cursor/plugins/local/akb/
+rsync -a /tmp/akb-src/akb/ ~/.cursor/plugins/local/akb/
 ```
 
 Windows PowerShell, from a clone of this repository:
@@ -130,7 +167,7 @@ Windows PowerShell, from a clone of this repository:
 $dest = Join-Path $env:USERPROFILE ".cursor\plugins\local\akb"
 if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
-robocopy $PWD $dest /E /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
+robocopy (Join-Path $PWD "akb") $dest /E /NFL /NDL /NJH /NJS /nc /ns /np
 ```
 
 `robocopy` exits 0 through 7 when the copy succeeded. Then reload Cursor
@@ -144,9 +181,11 @@ reload again.
 ## GitHub installation
 
 Cursor's **From GitHub Repository** import reads
-`.cursor-plugin/marketplace.json`. This file lists one plugin, `akb`, with
-`source` `.`. That source is the repository root, so Cursor loads
-`.cursor-plugin/plugin.json` from the same commit as the knowledge base.
+`.cursor-plugin/marketplace.json` at the repository root. This file lists
+one plugin, `akb`, with `source` `akb`. That source is a named directory.
+The indexer does not accept `source` `.`, and it may skip a `source` of
+`./`. The directory `akb/` contains `.cursor-plugin/plugin.json`,
+`skills/`, `rules/`, and the knowledge base those skills read.
 
 The marketplace entry is only `name`, `source`, and `description`. Version,
 author, homepage, repository, and keywords stay in
@@ -296,6 +335,9 @@ in `AGENTS.md` section 9. On this fork, point that marketplace at
 - Cursor plugin rules cannot expand `${PLUGIN_ROOT}`. The resolver finds the
   bundle from its own file path. A copied install works; a symlink that leaves
   `~/.cursor/plugins/local` does not.
+- The GitHub marketplace install is the `akb/` directory, not the
+  repository root. A project without a submodule reads that directory.
+  An initialized submodule still wins.
 - Skill frontmatter is only `name` and `description`, one description line,
   so Claude and Cursor read the same file. Cursor keys such as
   `disable-model-invocation` are not added.
@@ -342,6 +384,7 @@ python tools/check_frontmatter.py
 python tools/check_links.py
 python tools/check_skills.py
 python tools/check_shared_workflows.py
+python tools/package_cursor_plugin.py --check
 python tools/check_cursor_plugin.py
 python tools/check_claude_plugin.py
 ```
@@ -351,12 +394,16 @@ content and skill checks from `CONTRIBUTING.md`. `docs/cursor-plugin.md` is
 included in the link check and in Markdown lint. It is excluded from the
 knowledge-base frontmatter check.
 
-`check_cursor_plugin.py` and `check_claude_plugin.py` check manifests. That
-is static validation. It does not load Cursor or Claude Code.
-`check_cursor_plugin.py` also imports `jsonschema` and validates both Cursor
-manifests against the pinned schemas in `tools/cursor-schemas/`. CI installs
-`jsonschema==4.25.1` with PyYAML. A marketplace entry that adds a field the
-schema does not list fails this check.
+`check_cursor_plugin.py` and `check_claude_plugin.py` check manifests.
+Neither loads Cursor or Claude Code.
+`check_cursor_plugin.py` imports `jsonschema` and validates the root
+marketplace manifest, the root plugin manifest, and
+`akb/.cursor-plugin/plugin.json` against the pinned schemas in
+`tools/cursor-schemas/`. It also checks that `akb/` matches
+`tools/package_cursor_plugin.py` and runs the skill programs from a
+temporary copy of only that directory. CI installs `jsonschema==4.25.1`
+with PyYAML. A marketplace entry that adds a field the schema does not
+list fails this check. A `source` of `.` or `./` fails it as well.
 `check_claude_plugin.py` prints `LIVE claude plugin validate: NOT VERIFIED`
 when the `claude` command is absent. That line is not a passing plugin load.
 
