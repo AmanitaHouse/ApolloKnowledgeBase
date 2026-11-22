@@ -17,6 +17,14 @@ Usage:
       [--makefile-template PATH] [--claude | --no-claude] \\
       [--kb-url URL]
 
+Guided --languages accepts C, C++, and assembler. Case and surrounding
+whitespace do not matter. Combinations are separated by commas, plus
+signs, or the words and, or, and and/or. A plus sign that belongs to C++
+is not a separator, and a value is not C++ merely because it contains
+those characters. Any other name, or an empty value, prints PROBLEM= and
+writes no project file. Basic setup ignores --languages and records
+"not set yet".
+
 Default --kb-url is the AmanitaHouse fork. Pass the Apollo Team URL only
 when the developer asks for that repository. The URL is recorded in the
 optional Claude Code settings; the git submodule itself is added by the
@@ -82,7 +90,7 @@ def replace_after(text, prefix, value):
     return text[:start] + value + text[end + 1:]
 
 
-def fill_agents(template, name, what, kind, mode, languages, areas, build_body, basic):
+def fill_agents(template, name, what, kind, mode, languages, areas, build_body, basic, language_block=""):
     text = re.sub(r"<!--.*?-->\n?", "", template, flags=re.S)
     text = replace_after(text, "# AGENTS.md: ", name)
     text = replace_after(text, "- **What it is:** ", what)
@@ -108,6 +116,15 @@ def fill_agents(template, name, what, kind, mode, languages, areas, build_body, 
         if needle not in text:
             raise ValueError("could not place the not-set-yet note")
         text = text.replace(needle, insert, 1)
+    elif language_block:
+        needle = f"- **Languages:** {languages}\n"
+        if needle not in text:
+            raise ValueError("could not place the language support notes")
+        text = text.replace(
+            needle,
+            needle + "\n" + language_block.strip("\n") + "\n",
+            1,
+        )
     area_block = "\n".join(f"- `ApolloKnowledgeBase/{item}`" for item in areas)
     text = re.sub(
         r"## Relevant knowledge base areas\n(?:.*\n)*?(?=## Build and test\n)",
@@ -150,6 +167,251 @@ def agents_build_body(verdict):
     )
 
 
+# A sentinel that cannot appear in a language name. It protects the plus
+# signs inside C++ from the combination separator.
+_CXX_MARK = "\x00cxx\x00"
+_LANGUAGE_ORDER = ("C", "C++", "assembler")
+_ACCEPTED_LANGUAGES = "C, C++, and assembler"
+_LANGUAGE_SEPARATORS = (
+    "separated by commas, plus signs, or the words and, or, and and/or"
+)
+
+
+def _canonical_language(token):
+    if token == _CXX_MARK:
+        return "C++"
+    folded = token.lower().replace(_CXX_MARK, "c++")
+    if folded == "c":
+        return "C"
+    if folded == "c++":
+        return "C++"
+    if folded == "assembler":
+        return "assembler"
+    return None
+
+
+def parse_guided_languages(spec):
+    """Return (canonical text, None) or (None, PROBLEM text).
+
+    Canonical text is a subset of "C, C++, assembler" in that order.
+    """
+    if spec.strip() == "":
+        return None, (
+            "guided setup needs --languages with one or more of "
+            + _ACCEPTED_LANGUAGES
+            + " (for example: C). The value was empty."
+        )
+    protected = re.sub(r"(?i)c\+\+", _CXX_MARK, spec.strip())
+    parts = re.split(
+        r"\s*(?:,|(?:\band/or\b)|(?:\band\b)|(?:\bor\b)|\+)\s*",
+        protected,
+        flags=re.IGNORECASE,
+    )
+    chosen = []
+    unknown = []
+    for part in parts:
+        token = part.strip()
+        if token == "":
+            return None, (
+                "guided setup language has an empty entry. Pass one or more of "
+                + _ACCEPTED_LANGUAGES
+                + ", "
+                + _LANGUAGE_SEPARATORS
+                + " (for example: C, assembler)."
+            )
+        name = _canonical_language(token)
+        if name is None:
+            unknown.append(token.replace(_CXX_MARK, "C++"))
+        elif name not in chosen:
+            chosen.append(name)
+    if unknown:
+        shown = ", ".join(repr(token) for token in unknown)
+        return None, (
+            "guided setup does not recognize "
+            + shown
+            + ". Pass one or more of "
+            + _ACCEPTED_LANGUAGES
+            + ", "
+            + _LANGUAGE_SEPARATORS
+            + ". A value is not C++ merely because it contains C++."
+        )
+    ordered = [name for name in _LANGUAGE_ORDER if name in chosen]
+    return ", ".join(ordered), None
+
+
+def project_wildcard(text, suffix):
+    """True when an active line wildcards the project's own *.<suffix> sources.
+
+    ApolloLib-only wildcards are not the project's source list. The
+    installed ApolloCrossDev v1.0 template and the documented v1.2 template
+    collect project *.c and *.s this way, and neither collects *.cpp.
+    """
+    needle = "*." + suffix
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "wildcard" not in stripped or needle not in stripped:
+            continue
+        if "$(APOLLOLIB)" in stripped and "SOURCEDIR" not in stripped:
+            continue
+        return True
+    return False
+
+
+def language_caveat(selected):
+    """Comment appended to a guided build section when the starter is only C."""
+    if "C++" in selected and "assembler" in selected:
+        claim = (
+            "C++ project generation or compilation, or that an assembler program was generated"
+        )
+    elif "C++" in selected:
+        claim = "C++ project generation or compilation"
+    elif "assembler" in selected:
+        claim = "that an assembler program was generated"
+    else:
+        return None
+    return (
+        "# A non-uploading Make classification does not verify "
+        + claim
+        + ". The only starter is main.c."
+    )
+
+
+def language_notes(selected, template_text, cxx_status):
+    """Stdout diagnostics. Empty for C, including C combined with nothing else."""
+    notes = []
+    if "C++" in selected:
+        notes.append(
+            "NOTE=LANGUAGE C++: guided setup generates a C-style main.c starter, not a dedicated C++ starter. "
+            "When compiled with g++, it may be treated as C++ source."
+        )
+        if template_text is None:
+            notes.append(
+                "NOTE=LANGUAGE C++: no Makefile template was supplied, so .cpp sources are not collected. "
+                "Add .cpp files to the file lists as toolchain/project-makefile.md describes before claiming a C++ build."
+            )
+            notes.append(
+                "NOTE=LANGUAGE C++: no Makefile template was supplied, so the m68k-amigaos-g++ line is absent and C_COMPILER was not switched."
+            )
+        elif project_wildcard(template_text, "cpp"):
+            notes.append(
+                "NOTE=LANGUAGE C++: this Makefile template collects .cpp sources. "
+                "Guided setup still does not write a dedicated C++ starter."
+            )
+        else:
+            notes.append(
+                "NOTE=LANGUAGE C++: this Makefile template does not collect .cpp sources. "
+                "Add .cpp files to the file lists as toolchain/project-makefile.md describes before claiming a C++ build."
+            )
+        if cxx_status == "selected":
+            notes.append(
+                "NOTE=LANGUAGE C++: C_COMPILER was switched to the template m68k-amigaos-g++ line. "
+                "That switch does not verify C++ project generation or compilation, and a non-uploading Make classification is not that verification."
+            )
+        else:
+            notes.append(
+                "NOTE=LANGUAGE C++: C++ project generation and compilation are not verified. "
+                "A non-uploading Make classification is not that verification."
+            )
+    if "assembler" in selected:
+        notes.append(
+            "NOTE=LANGUAGE assembler: guided setup does not supply an assembler starter. "
+            "main.c is the C starter, not an assembler program."
+        )
+        if template_text is None:
+            notes.append(
+                "NOTE=LANGUAGE assembler: no Makefile template was supplied, so .s discovery was not established. "
+                "S_FLAGS was not changed."
+            )
+        elif project_wildcard(template_text, "s"):
+            notes.append(
+                "NOTE=LANGUAGE assembler: this Makefile template discovers .s files. "
+                "No assembler source was written and S_FLAGS was not changed."
+            )
+        else:
+            notes.append(
+                "NOTE=LANGUAGE assembler: this Makefile template does not discover .s files. "
+                "No .s discovery was added and S_FLAGS was not changed."
+            )
+    return notes
+
+
+def agents_language_block(selected, template_text, cxx_status):
+    """Guidance written into a new AGENTS.md. Empty when the request is C only."""
+    if "C++" not in selected and "assembler" not in selected:
+        return ""
+    bullets = []
+    if "C++" in selected and "assembler" in selected:
+        bullets.append(
+            "The Languages line records the request. It does not mean a C++ or assembler program was generated."
+        )
+    elif "C++" in selected:
+        bullets.append(
+            "The Languages line records the request. It does not mean a C++ program was generated."
+        )
+    else:
+        bullets.append(
+            "The Languages line records the request. It does not mean an assembler program was generated."
+        )
+    if "C++" in selected:
+        bullets.append(
+            "Guided setup generates a C-style `main.c` starter, not a dedicated C++ starter. "
+            "When compiled with `g++`, it may be treated as C++ source."
+        )
+        if template_text is None:
+            bullets.append(
+                "No Makefile template was supplied, so `.cpp` sources are not collected. "
+                "Before a C++ build can be claimed, add `.cpp` files to the file lists as "
+                "`ApolloKnowledgeBase/toolchain/project-makefile.md` describes."
+            )
+            bullets.append(
+                "No Makefile template was supplied, so the `m68k-amigaos-g++` line is absent and `C_COMPILER` was not switched."
+            )
+        elif project_wildcard(template_text, "cpp"):
+            bullets.append(
+                "This Makefile template collects `.cpp` sources. Guided setup still does not write a dedicated C++ starter."
+            )
+        else:
+            bullets.append(
+                "This Makefile template does not collect `.cpp` sources. "
+                "Before a C++ build can be claimed, add `.cpp` files to the file lists as "
+                "`ApolloKnowledgeBase/toolchain/project-makefile.md` describes."
+            )
+        if cxx_status == "selected":
+            bullets.append(
+                "`C_COMPILER` uses the template `m68k-amigaos-g++` line. "
+                "That switch does not verify C++ project generation or compilation. "
+                "A non-uploading Make classification is not that verification."
+            )
+        else:
+            if template_text is not None and cxx_status == "absent":
+                bullets.append(
+                    "The template has no commented `m68k-amigaos-g++` line, so `C_COMPILER` was left unchanged."
+                )
+            bullets.append(
+                "C++ project generation and compilation are not verified. "
+                "A non-uploading Make classification is not that verification."
+            )
+    if "assembler" in selected:
+        bullets.append(
+            "Guided setup does not supply an assembler starter. `main.c` is the C starter, not an assembler program."
+        )
+        if template_text is None:
+            bullets.append(
+                "No Makefile template was supplied, so `.s` discovery was not established. `S_FLAGS` was not changed."
+            )
+        elif project_wildcard(template_text, "s"):
+            bullets.append(
+                "This Makefile template discovers `.s` files. No assembler source was written and `S_FLAGS` was not changed."
+            )
+        else:
+            bullets.append(
+                "This Makefile template does not discover `.s` files. No `.s` discovery was added and `S_FLAGS` was not changed."
+            )
+    return "Guided setup language support:\n\n" + "\n".join("- " + item for item in bullets)
+
+
 def documented_make_commands(text):
     commands = []
     for line in text.splitlines():
@@ -188,7 +450,7 @@ def areas_for(setup, mode):
     return rows
 
 
-def adjust_makefile(text, project_name, languages):
+def adjust_makefile(text, project_name, selected):
     notes = []
     lines = text.splitlines(keepends=True)
     name_done = False
@@ -234,12 +496,14 @@ def adjust_makefile(text, project_name, languages):
             body = raw[:-1] if raw.endswith("\n") else raw
             if not body.lstrip().startswith("#"):
                 lines[i] = "# " + body + newline
-    wants_cxx = "C++" in languages or "c++" in languages
+    cxx_status = "not-requested"
+    wants_cxx = "C++" in selected
     if wants_cxx:
         if gpp_line is None or gcc_line is None:
             notes.append(
                 "NOTE=Makefile template has no commented m68k-amigaos-g++ line; C_COMPILER was left unchanged"
             )
+            cxx_status = "absent"
         else:
             raw = lines[gpp_line]
             newline = "\n" if raw.endswith("\n") else ""
@@ -250,7 +514,8 @@ def adjust_makefile(text, project_name, languages):
             body = raw[:-1] if raw.endswith("\n") else raw
             if not body.lstrip().startswith("#"):
                 lines[gcc_line] = "# " + body + newline
-    return "".join(lines), notes
+            cxx_status = "selected"
+    return "".join(lines), notes, cxx_status
 
 
 def write_new(path, data, created, skipped):
@@ -290,6 +555,7 @@ def main(argv):
     if not NAME_RE.fullmatch(name):
         return fail(f"project name must be letters, digits, '-' or '_': {name!r}")
 
+    selected = frozenset()
     if args.setup == "guided":
         if not args.what or not args.kind or not args.execution_mode:
             return fail("guided setup needs --what, --kind, and --execution-mode")
@@ -297,7 +563,11 @@ def main(argv):
             return fail(f"kind must be one of: {', '.join(sorted(KINDS))}")
         if args.execution_mode not in MODES:
             return fail("execution mode must be os-friendly or os-takeover")
-        what, kind, mode, languages = args.what, args.kind, args.execution_mode, args.languages
+        languages, language_problem = parse_guided_languages(args.languages)
+        if language_problem:
+            return fail(language_problem)
+        selected = frozenset(languages.split(", "))
+        what, kind, mode = args.what, args.kind, args.execution_mode
         basic = False
     else:
         what = kind = mode = languages = "not set yet"
@@ -316,21 +586,29 @@ def main(argv):
     makefile_text = None
     makefile_notes = []
     build_verdict = None
+    cxx_status = "not-requested"
     if args.setup == "guided":
         if args.makefile_template:
             if not os.path.isfile(args.makefile_template):
                 return fail(f"Makefile template is missing: {args.makefile_template}")
             with open(args.makefile_template, encoding="utf-8") as fh:
                 makefile_text = fh.read()
-            makefile_text, makefile_notes = adjust_makefile(makefile_text, name, languages)
+            makefile_text, makefile_notes, cxx_status = adjust_makefile(
+                makefile_text, name, selected,
+            )
             # Classify the Makefile text that will be written, not the raw
             # template path alone. AGENTS.md must match that content.
+            # A non-uploading classification is not C++ or assembler verification.
             build_verdict = classify_build.classify_text(
                 makefile_text, args.makefile_template,
             )
             build_body = agents_build_body(build_verdict)
         else:
+            cxx_status = "no-template"
             build_body = NO_TEMPLATE_BUILD
+        caveat = language_caveat(selected)
+        if caveat:
+            build_body += "\n" + caveat
 
     found = resolve_kb.resolve(project, ROOT)
     resolve_kb.emit(found)
@@ -344,9 +622,13 @@ def main(argv):
     with open(template_path, encoding="utf-8") as fh:
         template = fh.read()
     try:
+        language_block = ""
+        if args.setup == "guided":
+            language_block = agents_language_block(selected, makefile_text, cxx_status)
         agents = fill_agents(
             template, name, what, kind, mode, languages,
             areas_for(args.setup, args.execution_mode), build_body, basic,
+            language_block,
         )
     except ValueError as exc:
         return fail(str(exc))
@@ -422,6 +704,8 @@ def main(argv):
             write_new(os.path.join(project, "Makefile"), makefile_text, created, skipped)
         else:
             print("SKIPPED=Makefile reason=no-template")
+        for note in language_notes(selected, makefile_text, cxx_status):
+            print(note)
 
     print(f"SUMMARY created={len(created)} skipped={len(skipped)}")
     return 0
