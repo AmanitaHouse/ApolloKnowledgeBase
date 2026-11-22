@@ -37,17 +37,16 @@ The resolver lives in `tools/` at the root of this skill's repository (the
 installed `akb` plugin, in Claude Code or Cursor, or an AKB checkout).
 From step 2 on, an initialized `ApolloKnowledgeBase/` submodule is that
 root (`KB_SOURCE=submodule`). Before the submodule exists, the same
-command reports the bundled plugin (`KB_SOURCE=plugin`); use it for
+command reports the bundled plugin (`KB_SOURCE=plugin`); use it fo
 `KB templates/repo/AGENTS.md` and the other template files. Skill assets
 that are not in the submodule yet are next to this file: `assets/` and
 `scripts/write-project-files.sh`. The toolchain check is
 `KB skills/apollo-build/scripts/find-acd.sh`. If the resolver prints
 `PROBLEM=`, stop and follow every `RECOVERY=` line. Do not guess paths.
 
-**Which repository the submodule tracks.** On this fork the default is
-`https://github.com/AmanitaHouse/ApolloKnowledgeBase`. Say that once. If
-the developer asks for the original Apollo Team repository, use
-`https://github.com/ApolloTeam-dev/ApolloKnowledgeBase` instead. Do not
+**Which repository the submodule tracks.** The default is
+`https://github.com/ApolloTeam-dev/ApolloKnowledgeBase`. Say that once. If
+the developer asks for another clone URL, use that instead. Do not
 change the remote afterwards unless they ask.
 
 ## 0. Guided or basic setup
@@ -90,7 +89,7 @@ Ask these four in one go, and suggest the defaults in brackets:
    is in `KB AGENTS.md` section 1 and `KB os/os-takeover.md`.
 4. **Which language(s)**: C, C++ and/or assembler [C].
 
-Don't ask about the rest; every new project gets these, and the developer
+Don't ask about the rest; every new project gets these, and the develope
 can change them later in `AGENTS.md`:
 
 | Setting | Value |
@@ -132,7 +131,7 @@ that overwrites, and do not write the files by hand over theirs.
 - **`AGENTS.md`** (Cursor and most other agents): from
   `KB templates/repo/AGENTS.md`, placeholders filled, HTML comments removed.
 - **`.cursor/rules/apollo-v4.mdc`** (Cursor): a short project rule that
-  points at `ApolloKnowledgeBase/AGENTS.md` and the three akb skills. Cursor
+  points at `ApolloKnowledgeBase/AGENTS.md` and the three akb skills. Curso
   does not need `.claude/settings.json`.
 - **`CLAUDE.md` and `.claude/settings.json`** (Claude Code only): optional.
   The script writes them unless you pass `--no-claude`. Skip them when the
@@ -206,18 +205,18 @@ It also copies `assets/gitignore` to `.gitignore`.
 
 Build as the apollo-build skill describes (`KB skills/apollo-build/SKILL.md`):
 `make compile` when the Makefile has that target. It must end with no
-errors and no warnings before you continue. Do not run `make` or
+errors and no warnings before you continue. Do not run `make` o
 `make debug`: they upload to the V4. If the template is older than v1.2 and
-has no `compile` target, follow the apollo-build skill for
+has no `compile` target, follow the apollo-build skill fo
 `make cleanbefore build`, and only when that target does not upload.
 
-## 8. Hand over
+## 8. Hand ove
 
 - Show the user the files you made and, for a guided setup, the build
   result. Never claim the build succeeded unless you ran it and it printed
   no errors and no warnings.
 - Offer a first commit; commit only when they agree.
-- Tell them how to work from here: open the project folder in Cursor (or
+- Tell them how to work from here: open the project folder in Cursor (o
   Claude Code). Cursor reads `AGENTS.md` and `.cursor/rules/apollo-v4.mdc`
   and, with the akb plugin installed, the three skills. Claude Code uses
   `CLAUDE.md` and `.claude/settings.json` when those files were written.

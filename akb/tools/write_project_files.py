@@ -15,8 +15,8 @@ Usage:
       [--makefile-template PATH] [--claude | --no-claude] \\
       [--kb-url URL]
 
-Default --kb-url is the AmanitaHouse fork. Pass the Apollo Team URL only
-when the developer asks for that repository. The URL is recorded in the
+Default --kb-url is the Apollo Team repository. Pass another clone URL
+only when the developer asks for that repository. The URL is recorded in the
 optional Claude Code settings; the git submodule itself is added by the
 skill, not by this script.
 """
@@ -26,8 +26,8 @@ import os
 import re
 import sys
 
-FORK_URL = "https://github.com/AmanitaHouse/ApolloKnowledgeBase"
-UPSTREAM_URL = "https://github.com/ApolloTeam-dev/ApolloKnowledgeBase"
+DEFAULT_URL = "https://github.com/ApolloTeam-dev/ApolloKnowledgeBase"
+ALT_FORK_URL = "https://github.com/AmanitaHouse/ApolloKnowledgeBase"
 KINDS = {"game", "demo", "tool", "application", "library", "device", "datatype"}
 MODES = {"os-friendly", "os-takeover"}
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
@@ -225,7 +225,7 @@ def main(argv):
     parser.add_argument("--execution-mode", default="", choices=("", "os-friendly", "os-takeover"))
     parser.add_argument("--languages", default="C")
     parser.add_argument("--makefile-template", default="")
-    parser.add_argument("--kb-url", default=FORK_URL)
+    parser.add_argument("--kb-url", default=DEFAULT_URL)
     parser.add_argument("--claude", dest="claude", action="store_true")
     parser.add_argument("--no-claude", dest="claude", action="store_false")
     parser.set_defaults(claude=True)
@@ -259,7 +259,7 @@ def main(argv):
         basic = True
 
     kb_url = args.kb_url.strip()
-    if kb_url not in (FORK_URL, UPSTREAM_URL) and slug_from_url(kb_url) is None:
+    if kb_url not in (DEFAULT_URL, ALT_FORK_URL) and slug_from_url(kb_url) is None:
         return fail(f"kb-url is not a repository URL: {kb_url}")
     slug = slug_from_url(kb_url)
     if slug is None:

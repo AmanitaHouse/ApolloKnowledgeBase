@@ -72,23 +72,22 @@ These are the entry points. The procedures stay in the skill files.
 - Claude Code: `/plugin marketplace add ApolloTeam-dev/ApolloKnowledgeBase`,
   then `/plugin install akb@apolloknowledgebase`. The skills are
   `/akb:apollo-new-project`, `/akb:apollo-build` and `/akb:akb-lesson`.
-  On this fork, point that marketplace at
-  `AmanitaHouse/ApolloKnowledgeBase` when you want these adaptations.
   The marketplace name stays `apolloknowledgebase` (`AGENTS.md` section 9).
+  Point that marketplace at another clone only when the developer asks.
 - Cursor: install the generated `akb/` directory as described in
   [docs/cursor-plugin.md](docs/cursor-plugin.md), then
   `/apollo-new-project`, `/apollo-build` and `/akb-lesson`.
   The canonical skills and articles stay at the repository root.
 
-`apollo-new-project` on this fork tracks
-`https://github.com/AmanitaHouse/ApolloKnowledgeBase` unless the developer
-asks for `https://github.com/ApolloTeam-dev/ApolloKnowledgeBase`.
+`apollo-new-project` tracks
+`https://github.com/ApolloTeam-dev/ApolloKnowledgeBase` unless the develope
+asks for another clone URL.
 
 ---
 
 ## Contributing
 
-Everyone in the Apollo community can contribute. Read `CONTRIBUTING.md` for
+Everyone in the Apollo community can contribute. Read `CONTRIBUTING.md` fo
 the file format and review process. The most valuable contributions are:
 
 - Places where ApolloOS, the 68080 or SAGA differ from what developers (and

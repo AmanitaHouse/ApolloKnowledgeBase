@@ -152,14 +152,13 @@ def resolve(project, bundle):
     recovery.append(
         "Install the akb plugin (Claude Code: AGENTS.md section 9; Cursor: "
         "docs/cursor-plugin.md), or add "
-        "the knowledge base from this fork: git submodule add "
-        "https://github.com/AmanitaHouse/ApolloKnowledgeBase "
+        "the knowledge base: git submodule add "
+        "https://github.com/ApolloTeam-dev/ApolloKnowledgeBase "
         "ApolloKnowledgeBase && git submodule update --init ApolloKnowledgeBase"
     )
     recovery.append(
-        "To track the Apollo Team repository instead: git submodule add "
-        "https://github.com/ApolloTeam-dev/ApolloKnowledgeBase "
-        "ApolloKnowledgeBase"
+        "To track another clone the developer names instead: git submodule add "
+        "<that-url> ApolloKnowledgeBase"
     )
     return {
         "ok": False,

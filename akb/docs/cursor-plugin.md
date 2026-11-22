@@ -1,7 +1,7 @@
 # Cursor plugin
 
 This file is operational documentation for the Cursor plugin. It is not
-Apollo V4 knowledge and it has no knowledge-base frontmatter
+Apollo V4 knowledge and it has no knowledge-base frontmatte
 (`CONTRIBUTING.md` sections 2 and 4).
 
 The `akb` plugin packages ApolloKnowledgeBase for Cursor. It is the same
@@ -11,8 +11,9 @@ discovers the skills from that directory's `.cursor-plugin/plugin.json`,
 `skills/`, and `rules/`.
 
 Apollo Team wrote the knowledge base and the original skills. This repository
-is the AmanitaHouse fork. The fork adds the Cursor package and points new
-projects at this fork unless you ask for the Apollo Team repository.
+adds the Cursor package and points new projects at
+`ApolloTeam-dev/ApolloKnowledgeBase` unless the developer asks for anothe
+clone URL.
 
 ## What it does
 
@@ -157,7 +158,7 @@ macOS and Linux:
 ```sh
 rm -rf ~/.cursor/plugins/local/akb
 mkdir -p ~/.cursor/plugins/local
-git clone https://github.com/AmanitaHouse/ApolloKnowledgeBase.git /tmp/akb-src
+git clone https://github.com/ApolloTeam-dev/ApolloKnowledgeBase.git /tmp/akb-src
 rsync -a /tmp/akb-src/akb/ ~/.cursor/plugins/local/akb/
 ```
 
@@ -170,7 +171,7 @@ New-Item -ItemType Directory -Force -Path $dest | Out-Null
 robocopy (Join-Path $PWD "akb") $dest /E /NFL /NDL /NJH /NJS /nc /ns /np
 ```
 
-`robocopy` exits 0 through 7 when the copy succeeded. Then reload Cursor
+`robocopy` exits 0 through 7 when the copy succeeded. Then reload Curso
 (Developer: Reload Window) and open Customize. You should see the plugin's
 skills `apollo-new-project`, `apollo-build`, and `akb-lesson`, and the rule
 `apollo-v4` set so the agent decides when to apply it.
@@ -195,7 +196,7 @@ lists.
 
 In Customize, import:
 
-`https://github.com/AmanitaHouse/ApolloKnowledgeBase`
+`https://github.com/ApolloTeam-dev/ApolloKnowledgeBase`
 
 Then install `akb` for yourself or for the project. This path depends on
 Cursor's GitHub import UI and on access to the repository. It is separate
@@ -216,7 +217,7 @@ them. Do not treat these manifests as a publication submission.
   The rest may be letters, digits, `-`, or `_`. When the directory name
   does not comply, the agent passes `--name` and does not rename or move
   the directory.
-- **Guided** also asks for the name, kind, execution mode (`os-friendly` or
+- **Guided** also asks for the name, kind, execution mode (`os-friendly` o
   `os-takeover`), and languages. It checks ApolloCrossDev, writes a Makefile
   from that install's template, writes `main.c`, and builds with `make compile`
   when the template has that target.
@@ -224,7 +225,7 @@ them. Do not treat these manifests as a publication submission.
 Existing files are left in place. The agent shows you a proposed change and
 waits.
 
-Claude Code files (`CLAUDE.md`, `.claude/settings.json`) are optional. Cursor
+Claude Code files (`CLAUDE.md`, `.claude/settings.json`) are optional. Curso
 does not read them. Say so if you do not want them.
 
 ## Knowledge-base resolution
@@ -245,16 +246,17 @@ Run `tools/resolve_kb.py` with the [host launch](#host-launch), passing
 the project directory. On PowerShell that is `wsl.exe -e python3` and a
 translated path. On Linux, macOS, and WSL it is `python3`.
 
-New projects from this fork use:
-
-```sh
-git submodule add https://github.com/AmanitaHouse/ApolloKnowledgeBase ApolloKnowledgeBase
-```
-
-Ask for the Apollo Team repository when you want that history instead:
+New projects use the Apollo Team repository by default:
 
 ```sh
 git submodule add https://github.com/ApolloTeam-dev/ApolloKnowledgeBase ApolloKnowledgeBase
+```
+
+Ask for another clone URL when the developer wants that history instead, fo
+example:
+
+```sh
+git submodule add https://github.com/AmanitaHouse/ApolloKnowledgeBase ApolloKnowledgeBase
 ```
 
 The skill does not change the URL after the submodule exists unless you ask.
@@ -265,7 +267,7 @@ The skill does not change the URL after the submodule exists unless you ask.
 looks at `APOLLOCROSSDEV`, then two folders above the project, then
 `~/ApolloCrossDev`. It prints `PROBLEM=`, `NOTE=`, and `UPDATE=` lines.
 
-`UPDATE=` does not block a build. A missing compiler does. Installing or
+`UPDATE=` does not block a build. A missing compiler does. Installing o
 reinstalling GCC-6.50-Dev takes a long time and uses `sudo`; you run that
 script yourself. The agent may clone the toolchain only with your consent.
 
@@ -304,20 +306,20 @@ Two different checks follow the draft:
   was given and the approved file matches the draft. The script itself
   does not publish.
 
-The destination is not assumed. It may be this fork, the Apollo Team
-repository, the manager at <https://apolloknowledgebase.com/manager/>, or the
-issue form on the repository you name. After a pull request, the project's
-submodule is returned to the commit the project had pinned.
+The destination is not assumed. It may be this repository, another clone
+the developer names, the manager at
+<https://apolloknowledgebase.com/manager/>, or the issue form on the
+repository you name. After a pull request, the project's submodule is
+returned to the commit the project had pinned.
 
 ## Claude Code compatibility
 
 `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` keep
 the Apollo Team installation identifiers: marketplace `apolloknowledgebase`,
-plugin `akb`, repository `ApolloTeam-dev/ApolloKnowledgeBase`. This fork
-does not add a second marketplace name. Claude Code cannot load two
-marketplaces that share `apolloknowledgebase`. Point that marketplace at
-`AmanitaHouse/ApolloKnowledgeBase` or at the Apollo Team repository, not
-at both under the same name.
+plugin `akb`, repository `ApolloTeam-dev/ApolloKnowledgeBase`. Do not add a
+second marketplace name. Claude Code cannot load two marketplaces that share
+`apolloknowledgebase`. Point that marketplace at this repository or at one
+named alternative, not at both under the same name.
 
 The skill files are shared. Cursor-specific behaviour is the resolver's
 caller, the project rule, and the optional Claude files no longer being
@@ -326,9 +328,9 @@ without `.cursor-plugin/plugin.json`.
 
 Claude Code users install with
 `/plugin marketplace add` and `/plugin install akb@apolloknowledgebase`, as
-in `AGENTS.md` section 9. On this fork, point that marketplace at
-`AmanitaHouse/ApolloKnowledgeBase` if you want these Cursor adaptations.
-`ApolloTeam-dev/ApolloKnowledgeBase` remains the upstream project.
+in `AGENTS.md` section 9. Point that marketplace at
+`ApolloTeam-dev/ApolloKnowledgeBase` unless the developer asks for anothe
+clone.
 
 ## Known limitations
 
