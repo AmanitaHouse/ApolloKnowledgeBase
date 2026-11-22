@@ -4,7 +4,9 @@
 The script creates files that are missing. It never overwrites an existing
 file, never runs git, never changes remotes, and never installs software.
 A guided AGENTS.md names a Make command only after the supplied Makefile
-template has been classified as non-uploading.
+template has been classified as non-uploading and the effective project
+compiler PREFIX (and any required documented NDK) is ready for that
+project location. Upload safety and build readiness stay distinct.
 
 The skill runs skills/apollo-new-project/scripts/write-project-files.sh.
 This program is the shared implementation (Python standard library only).
@@ -53,6 +55,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.dirname(__file__))
 
 import classify_build  # noqa: E402
+import resolve_compiler  # noqa: E402
 import resolve_kb  # noqa: E402
 
 PROJECT_RULE = """---
@@ -159,19 +162,53 @@ NO_TEMPLATE_BUILD = (
 )
 
 
-def agents_build_body(verdict):
-    if verdict.command in SAFE_COMMANDS:
+def agents_build_body(verdict, assessment=None):
+    if verdict.command not in SAFE_COMMANDS:
+        reason = " ".join(verdict.reason.replace("<", "").replace(">", "").split())
         return (
-            verdict.command + "\n"
-            "# This command was classified as non-uploading from the Makefile that will be written.\n"
-            "# Do not run any other make goal unless the developer asks."
+            "# No Make target was classified as non-uploading.\n"
+            "# " + reason + "\n"
+            "# This file names no build command."
         )
-    reason = " ".join(verdict.reason.replace("<", "").replace(">", "").split())
+    if assessment is not None and not assessment["ready"]:
+        return resolve_compiler.blocked_build_body(verdict, assessment)
     return (
-        "# No Make target was classified as non-uploading.\n"
-        "# " + reason + "\n"
-        "# This file names no build command."
+        verdict.command + "\n"
+        "# This command was classified as non-uploading from the Makefile that will be written.\n"
+        "# The project compiler PREFIX and required documented NDK headers were ready at generation.\n"
+        "# Do not run any other make goal unless the developer asks."
     )
+
+
+def emit_readiness_notes(assessment):
+    """Stdout guidance that must not rewrite files."""
+    compiler = assessment["compiler"]
+    ndk = assessment["ndk"]
+    if assessment["ready"]:
+        print(f"NOTE=build-readiness: compiler PREFIX ready at {compiler['prefix']}")
+        if ndk["status"] == "present":
+            print(f"NOTE=build-readiness: documented NDK {ndk['required']} present at {ndk['path']}")
+        return
+    print("NOTE=build-readiness: compilation is blocked; AGENTS.md names no Make command")
+    if compiler["status"] != "ready":
+        print(f"NOTE=build-readiness: {compiler['reason']}")
+        if compiler["shape"] == "v10_relative":
+            print(
+                "NOTE=build-readiness: setting APOLLOCROSSDEV does not fix a v1.0 "
+                "$(PWD)/../../Compilers/... PREFIX"
+            )
+        elif compiler["shape"] == "v12_acd_root" and compiler.get("acd_root"):
+            print(
+                "NOTE=build-readiness: for this v1.2 Makefile set "
+                f"APOLLOCROSSDEV={compiler['acd_root']}, or place the project under "
+                "ApolloCrossDev/Projects/"
+            )
+    if ndk["status"] == "absent":
+        print(f"NOTE=build-readiness: {ndk['reason']}")
+        print(
+            "NOTE=build-readiness: do not substitute m68k-amigaos/ndk-include "
+            "for the documented NDK path"
+        )
 
 
 # A sentinel that cannot appear in a language name. It protects the plus
@@ -528,14 +565,45 @@ def documented_make_commands(text):
     return commands
 
 
-def report_agents_mismatch(agents_path, verdict):
+def report_agents_mismatch(agents_path, verdict, assessment=None):
     with open(agents_path, encoding="utf-8") as fh:
         documented = documented_make_commands(fh.read())
-    expected = [verdict.command] if verdict.command in SAFE_COMMANDS else []
+    expected = []
+    if verdict.command in SAFE_COMMANDS and (
+        assessment is None or assessment["ready"]
+    ):
+        expected = [verdict.command]
     if documented == expected:
         return
     shown = ", ".join(documented) if documented else "none"
-    classified = verdict.command if verdict.command in SAFE_COMMANDS else "no verified non-uploading command"
+    if verdict.command in SAFE_COMMANDS and assessment is not None and not assessment["ready"]:
+        classified = (
+            f"non-uploading {verdict.command}, but compilation is blocked "
+            f"({assessment['compiler']['status']}"
+            + (
+                f", NDK {assessment['ndk']['status']}"
+                if assessment["ndk"]["status"] not in {"none", "present"}
+                else ""
+            )
+            + ")"
+        )
+        advice = (
+            assessment["compiler"]["reason"]
+            if assessment["compiler"]["status"] != "ready"
+            else assessment["ndk"]["reason"]
+        )
+        advice = " ".join(advice.replace("<", "").replace(">", "").split())
+        print(
+            "NOTE=existing AGENTS.md was left unchanged and its build command does not match "
+            f"the current compiler readiness: documented {shown}; {classified}. {advice} "
+            "Update the Build and test section only after reviewing that mismatch."
+        )
+        return
+    classified = (
+        verdict.command
+        if verdict.command in SAFE_COMMANDS
+        else "no verified non-uploading command"
+    )
     reason = " ".join(verdict.reason.replace("<", "").replace(">", "").split())
     print(
         "NOTE=existing AGENTS.md was left unchanged and its build command does not match "
@@ -916,6 +984,7 @@ def main(argv):
     makefile_text = None
     makefile_notes = []
     build_verdict = None
+    build_assessment = None
     cpp_info = None
     situation = None
     if args.setup == "guided":
@@ -940,10 +1009,15 @@ def main(argv):
                 makefile_text, name, selected,
             )
             # Classify the Makefile text that will be written, not the raw
-            # template path alone. AGENTS.md must match that content.
-            # A non-uploading classification is not C++ or assembler verification.
+            # template path alone. Upload safety and compiler-path readiness
+            # stay separate: AGENTS.md names a Make command only when both
+            # pass. A non-uploading classification is not C++ or assembler
+            # verification.
             build_verdict = classify_build.classify_text(
                 makefile_text, args.makefile_template,
+            )
+            build_assessment = resolve_compiler.assess_build_readiness(
+                makefile_text, project,
             )
             if situation and situation["makefile"] == "preserved":
                 build_body = (
@@ -951,6 +1025,7 @@ def main(argv):
                     "# .cpp discovery was not added. This file names no build command."
                 )
                 build_verdict = None
+                build_assessment = None
             elif situation and situation["makefile"] == "write":
                 if cpp_info:
                     situation["configured"] = bool(cpp_info["configured"])
@@ -958,9 +1033,11 @@ def main(argv):
                     situation["link"] = cpp_info["link"]
                     situation["rule"] = cpp_info["rule"]
                     situation["compiler"] = cpp_info["compiler"]
-                build_body = agents_build_body(build_verdict)
+                build_body = agents_build_body(build_verdict, build_assessment)
+                emit_readiness_notes(build_assessment)
             else:
-                build_body = agents_build_body(build_verdict)
+                build_body = agents_build_body(build_verdict, build_assessment)
+                emit_readiness_notes(build_assessment)
         else:
             build_body = NO_TEMPLATE_BUILD
         caveat = language_caveat(selected, situation)
@@ -995,7 +1072,7 @@ def main(argv):
     agents_existed = os.path.exists(agents_path)
     write_new(agents_path, agents, created, skipped)
     if agents_existed and build_verdict is not None:
-        report_agents_mismatch(agents_path, build_verdict)
+        report_agents_mismatch(agents_path, build_verdict, build_assessment)
     write_new(
         os.path.join(project, ".cursor", "rules", "apollo-v4.mdc"),
         PROJECT_RULE,

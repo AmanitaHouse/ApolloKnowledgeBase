@@ -25,6 +25,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.dirname(__file__))
 
 import classify_build  # noqa: E402
+import resolve_compiler  # noqa: E402
 import resolve_kb  # noqa: E402
 
 errors = []
@@ -674,7 +675,7 @@ exit:
 V10_CLEANBEFORE = lines_of("""
 # ApolloCrossDev Makefile Template v1.0
 PWD = $(shell pwd)
-PREFIX = $(PWD)/../../Compilers/GCC-6.50
+PREFIX = $(PWD)/../../Compilers/GCC-6.50-Stable
 ACP = $(PWD)/../../Projects/ApolloExplorer/acp/acp
 APOLLO_V4_HOST = "${AMIGAHOST}:Ram Disk/"
 PROJECT_NAME = probe
@@ -763,8 +764,12 @@ def check_build_commands():
     ).read()
     if "classify_build.py" not in script:
         fail("find-acd.sh does not use tools/classify_build.py")
+    if "resolve_compiler.py" not in script:
+        fail("find-acd.sh does not use tools/resolve_compiler.py")
     if "build with: make cleanbefore build" in script:
         fail("find-acd.sh still recommends make cleanbefore build unconditionally")
+    if "PROJECT_PREFIX" not in script or "COMPILER_STATUS" not in script:
+        fail("find-acd.sh does not report PROJECT_PREFIX / COMPILER_STATUS")
     expect_command("v1.2 compile", V12_COMPILE, "make compile")
     expect_command("v1.0 cleanbefore", V10_CLEANBEFORE, "make cleanbefore build")
     expect_refused(
@@ -874,8 +879,10 @@ def check_build_commands():
         "upload-capable",
     )
 
+    acd_home = tempfile.mkdtemp(prefix="akb-agents-acd-")
     project = tempfile.mkdtemp(prefix="akb-agents-")
     try:
+        stub_acd_compilers(acd_home, {"GCC-6.50-Dev": []})
         safe_template = write_makefile(project, V12_COMPILE, "v12.mk")
         unsafe_template = write_makefile(
             project,
@@ -883,7 +890,10 @@ def check_build_commands():
             "unsafe.mk",
         )
         old_template = write_makefile(project, V10_CLEANBEFORE, "v10.mk")
-        created = run_py(guided_args(project, safe_template))
+        env = os.environ.copy()
+        env["APOLLOCROSSDEV"] = acd_home
+        env["HOME"] = tempfile.mkdtemp(prefix="akb-agents-home-")
+        created = run_py(guided_args(project, safe_template), env=env)
         agents_path = os.path.join(project, "AGENTS.md")
         if created.returncode != 0 or not os.path.isfile(agents_path):
             fail(f"guided project with a v1.2 template was not created:\n{created.stdout}")
@@ -892,7 +902,7 @@ def check_build_commands():
                 agents = fh.read()
             commands = uncommented_make_commands(agents)
             if commands != ["make compile"]:
-                fail(f"v1.2 template documented {commands}")
+                fail(f"v1.2 template documented {commands}\n{created.stdout}")
             written = open(os.path.join(project, "Makefile"), encoding="utf-8").read()
             written_verdict = classify_build.classify_text(written, os.path.join(project, "Makefile"))
             if written_verdict.command != "make compile":
@@ -903,12 +913,12 @@ def check_build_commands():
             if "Makefile that will be written" not in agents:
                 fail("AGENTS.md did not say the documented command came from the written Makefile")
             original = open(agents_path, "rb").read()
-            again = run_py(guided_args(project, safe_template))
+            again = run_py(guided_args(project, safe_template), env=env)
             if open(agents_path, "rb").read() != original:
                 fail("a second guided run changed an existing AGENTS.md")
             if "NOTE=existing AGENTS.md was left unchanged" in again.stdout:
                 fail("a matching template was reported as a build-command mismatch")
-            mismatched = run_py(guided_args(project, unsafe_template))
+            mismatched = run_py(guided_args(project, unsafe_template), env=env)
             if open(agents_path, "rb").read() != original:
                 fail("a mismatched template rewrote AGENTS.md")
             if "NOTE=existing AGENTS.md was left unchanged" not in mismatched.stdout:
@@ -917,7 +927,7 @@ def check_build_commands():
                 fail("mismatch note advertised an unrequested build")
         bare = tempfile.mkdtemp(prefix="akb-notemplate-")
         try:
-            bare_run = run_py(guided_args(bare))
+            bare_run = run_py(guided_args(bare), env=env)
             bare_agents = os.path.join(bare, "AGENTS.md")
             if bare_run.returncode != 0 or not os.path.isfile(bare_agents):
                 fail(f"guided project without a template failed:\n{bare_run.stdout}")
@@ -932,15 +942,22 @@ def check_build_commands():
             shutil.rmtree(bare, ignore_errors=True)
         older = tempfile.mkdtemp(prefix="akb-v10-")
         try:
-            older_run = run_py(guided_args(older, old_template))
+            older_run = run_py(guided_args(older, old_template), env=env)
             older_agents = os.path.join(older, "AGENTS.md")
             if older_run.returncode != 0 or not os.path.isfile(older_agents):
                 fail(f"v1.0 guided project failed:\n{older_run.stdout}")
             else:
                 with open(older_agents, encoding="utf-8") as fh:
-                    commands = uncommented_make_commands(fh.read())
-                if commands != ["make cleanbefore build"]:
-                    fail(f"v1.0 template documented {commands}")
+                    text = fh.read()
+                commands = uncommented_make_commands(text)
+                if commands:
+                    fail(f"v1.0 out-of-tree template must not document a Make command: {commands}")
+                if "Compilation is blocked" not in text:
+                    fail("v1.0 out-of-tree AGENTS.md did not mark compilation blocked")
+                if "APOLLOCROSSDEV does not fix" not in text and "does not use APOLLOCROSSDEV" not in text:
+                    fail("v1.0 out-of-tree AGENTS.md did not warn about APOLLOCROSSDEV")
+                if not os.path.isfile(os.path.join(older, "Makefile")) or not os.path.isfile(os.path.join(older, "main.c")):
+                    fail("v1.0 out-of-tree setup failed to preserve source generation")
         finally:
             shutil.rmtree(older, ignore_errors=True)
         preserved = tempfile.mkdtemp(prefix="akb-preserve-")
@@ -949,15 +966,18 @@ def check_build_commands():
             with open(hand, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write("# keep\nmake compile\n")
             before_bytes = open(hand, "rb").read()
-            kept = run_py(guided_args(preserved, old_template))
+            kept = run_py(guided_args(preserved, old_template), env=env)
             if open(hand, "rb").read() != before_bytes:
                 fail("an existing AGENTS.md was rewritten")
             if kept.returncode != 0 or "NOTE=existing AGENTS.md was left unchanged" not in kept.stdout:
                 fail(f"existing make compile was not reported against a v1.0 template:\n{kept.stdout}")
+            if "compilation is blocked" not in kept.stdout:
+                fail(f"existing AGENTS.md mismatch did not mention compilation block:\n{kept.stdout}")
         finally:
             shutil.rmtree(preserved, ignore_errors=True)
     finally:
         shutil.rmtree(project, ignore_errors=True)
+        shutil.rmtree(acd_home, ignore_errors=True)
 
     shell = shell_path()
     if not shell:
@@ -1133,6 +1153,23 @@ def make_acd_tree(acd, variants_with_ndk):
                 os.makedirs(os.path.join(base, "ndk32-include", "Include_H"), exist_ok=True)
             else:
                 os.makedirs(os.path.join(base, name), exist_ok=True)
+
+
+def stub_acd_compilers(acd, variants_with_ndk, binaries=None):
+    """Disposable ApolloCrossDev tree with stub compiler binaries. Never run them."""
+    make_acd_tree(acd, variants_with_ndk)
+    names = binaries or ("m68k-amigaos-gcc", "m68k-amigaos-g++", "vasmm68k_mot")
+    for variant in variants_with_ndk:
+        bindir = os.path.join(acd, "Compilers", variant, "bin")
+        os.makedirs(bindir, exist_ok=True)
+        for name in names:
+            path = os.path.join(bindir, name)
+            with open(path, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write("#!/bin/sh\necho stub\n")
+            try:
+                os.chmod(path, 0o755)
+            except OSError:
+                pass
 
 
 def run_find_acd(shell, script_path, project, acd, home):
@@ -1454,6 +1491,18 @@ def check_ndk_diagnostics():
                 fail(f"v10-out-of-tree: must not PROBLEM using ACD_ROOT from the Stable label:\n{result.stdout}")
             if "NDK_COMPILER" in parse_kv(result.stdout):
                 fail(f"v10-out-of-tree: must not claim NDK_COMPILER:\n{result.stdout}")
+            if not any(
+                line.startswith("PROBLEM=project Makefile compiler path:")
+                for line in result.stdout.splitlines()
+            ):
+                fail(f"v10-out-of-tree: expected compiler-path PROBLEM:\n{result.stdout}")
+            if "APOLLOCROSSDEV does not fix a v1.0" not in result.stdout:
+                fail(f"v10-out-of-tree: expected APOLLOCROSSDEV-does-not-fix NOTE:\n{result.stdout}")
+            info = parse_kv(result.stdout)
+            if info.get("BUILD") not in ("make compile", "make cleanbefore build"):
+                fail(f"v10-out-of-tree: upload-safety BUILD= must remain:\n{result.stdout}")
+            if info.get("COMPILER_STATUS") == "ready":
+                fail(f"v10-out-of-tree: COMPILER_STATUS must not be ready:\n{result.stdout}")
         finally:
             shutil.rmtree(acd, ignore_errors=True)
             shutil.rmtree(project, ignore_errors=True)
@@ -1839,8 +1888,18 @@ def run_language(
     execution_mode="os-friendly",
 ):
     root = tempfile.mkdtemp(prefix="akb-lang-")
-    project = os.path.join(root, "proj")
+    # Place the project under a disposable ApolloCrossDev tree so both v1.0
+    # relative PREFIX and v1.2 ACD_ROOT shapes can be ready without Make.
+    acd = os.path.join(root, "ApolloCrossDev")
+    project = os.path.join(acd, "Projects", "probe1")
     os.makedirs(project)
+    stub_acd_compilers(
+        acd,
+        {
+            "GCC-6.50-Dev": ["ndk39-include"],
+            "GCC-6.50-Stable": ["ndk39-include"],
+        },
+    )
     if prep:
         prep(project)
     args = [
@@ -1862,7 +1921,11 @@ def run_language(
         args.extend(["--makefile-template", path])
     elif template_path is not None:
         args.extend(["--makefile-template", template_path])
-    result = run_py(args)
+    env = os.environ.copy()
+    env["HOME"] = os.path.join(root, "home")
+    os.makedirs(env["HOME"], exist_ok=True)
+    env["APOLLOCROSSDEV"] = acd
+    result = run_py(args, env=env)
     return root, project, result
 
 
@@ -2563,6 +2626,444 @@ def check_language_selection():
         print("WORKFLOW guided language selection: PASS")
 
 
+def check_build_readiness():
+    """Upload safety vs compiler-path readiness. Never runs make."""
+    before = len(errors)
+    home = tempfile.mkdtemp(prefix="akb-ready-home-")
+
+    def agents_commands(project):
+        path = os.path.join(project, "AGENTS.md")
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        return uncommented_make_commands(text), text
+
+    try:
+        # 1. v1.0 in-tree with a valid relative compiler path.
+        acd = tempfile.mkdtemp(prefix="akb-ready-v10in-")
+        try:
+            stub_acd_compilers(acd, {"GCC-6.50-Stable": ["ndk39-include"], "GCC-6.50-Dev": []})
+            project = os.path.join(acd, "Projects", "probev10in")
+            os.makedirs(project)
+            template = write_makefile(acd, makefile_v10_relative(
+                "C_INCL_NDK  = $(PREFIX)/$(TARGET)/ndk39-include\n"
+            ), "v10in.mk")
+            env = os.environ.copy()
+            env["HOME"] = home
+            env["APOLLOCROSSDEV"] = acd
+            result = run_py(guided_args(project, template), env=env)
+            commands, text = agents_commands(project)
+            if result.returncode != 0 or commands != ["make compile"]:
+                fail(f"v10-in-tree readiness: expected make compile:\n{result.stdout}\n{text}")
+            assessment = resolve_compiler.assess_build_readiness(
+                open(os.path.join(project, "Makefile"), encoding="utf-8").read(),
+                project,
+                acd_root=acd,
+                env=env,
+                home=home,
+            )
+            if assessment["compiler"]["status"] != "ready":
+                fail(f"v10-in-tree readiness: PREFIX not ready: {assessment}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+
+        # 2. v1.0 out-of-tree with an invalid relative compiler path.
+        acd = tempfile.mkdtemp(prefix="akb-ready-v10out-acd-")
+        project = tempfile.mkdtemp(prefix="akb-ready-v10out-")
+        try:
+            stub_acd_compilers(acd, {"GCC-6.50-Stable": ["ndk39-include"], "GCC-6.50-Dev": []})
+            template = write_makefile(project, makefile_v10_relative(
+                "C_INCL_NDK  = $(PREFIX)/$(TARGET)/ndk39-include\n"
+            ), "v10out.mk")
+            env = os.environ.copy()
+            env["HOME"] = home
+            env["APOLLOCROSSDEV"] = acd
+            result = run_py(guided_args(project, template), env=env)
+            commands, text = agents_commands(project)
+            if commands:
+                fail(f"v10-out-of-tree readiness must not document Make: {commands}\n{text}")
+            if "Compilation is blocked" not in text:
+                fail(f"v10-out-of-tree readiness missing block text:\n{text}")
+            if "does not use APOLLOCROSSDEV" not in text:
+                fail(f"v10-out-of-tree readiness missing APOLLOCROSSDEV warning:\n{text}")
+            if not os.path.isfile(os.path.join(project, "main.c")):
+                fail("v10-out-of-tree readiness lost the starter")
+            if "NOTE=build-readiness: compilation is blocked" not in result.stdout:
+                fail(f"v10-out-of-tree readiness missing stdout NOTE:\n{result.stdout}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+
+        # 3. v1.2 project with a supported and valid ACD_ROOT.
+        acd = tempfile.mkdtemp(prefix="akb-ready-v12ok-acd-")
+        project = tempfile.mkdtemp(prefix="akb-ready-v12ok-")
+        try:
+            stub_acd_compilers(acd, {"GCC-6.50-Dev": ["ndk39-include"]})
+            # Keep a non-uploading compile target from V12_COMPILE shape.
+            text = V12_COMPILE.replace(
+                "C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc\n",
+                "C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc\n"
+                "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk39-include\n"
+                "C_INCL_ALL = -I. -I$(C_INCL_NDK)\n"
+                "C_FLAGS = $(C_INCL_ALL)\n",
+            )
+            template = write_makefile(project, text, "v12ok.mk")
+            env = os.environ.copy()
+            env["HOME"] = home
+            env["APOLLOCROSSDEV"] = acd
+            result = run_py(guided_args(project, template), env=env)
+            commands, agents = agents_commands(project)
+            if commands != ["make compile"]:
+                fail(f"v12-valid readiness expected make compile: {commands}\n{result.stdout}\n{agents}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+
+        # 4. v1.2 project with a missing or unresolved compiler location.
+        acd = tempfile.mkdtemp(prefix="akb-ready-v12miss-acd-")
+        project = tempfile.mkdtemp(prefix="akb-ready-v12miss-")
+        try:
+            stub_acd_compilers(acd, {"GCC-6.50-Dev": ["ndk39-include"]})
+            text = V12_COMPILE.replace(
+                "PREFIX = $(ACD_ROOT)/Compilers/GCC-6.50-Dev",
+                "PREFIX = $(ACD_ROOT)/Compilers/GCC-6.50-Stable",
+            )
+            text = text.replace(
+                "C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc\n",
+                "C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc\n"
+                "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk39-include\n"
+                "C_INCL_ALL = -I. -I$(C_INCL_NDK)\n"
+                "C_FLAGS = $(C_INCL_ALL)\n",
+            )
+            template = write_makefile(project, text, "v12miss.mk")
+            env = os.environ.copy()
+            env["HOME"] = home
+            env["APOLLOCROSSDEV"] = acd
+            result = run_py(guided_args(project, template), env=env)
+            commands, agents = agents_commands(project)
+            if commands:
+                fail(f"v12-missing compiler must not document Make: {commands}\n{agents}")
+            if "Compilation is blocked" not in agents:
+                fail(f"v12-missing compiler missing block text:\n{agents}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+
+        # 5. Non-uploading target with an invalid compiler path (find-acd).
+        shell = shell_path()
+        if shell:
+            acd = tempfile.mkdtemp(prefix="akb-ready-build-acd-")
+            project = tempfile.mkdtemp(prefix="akb-ready-build-")
+            script_path, temporary = posix_script(
+                os.path.join(ROOT, "skills", "apollo-build", "scripts", "find-acd.sh")
+            )
+            try:
+                stub_acd_compilers(acd, {"GCC-6.50-Dev": []})
+                write_makefile(project, makefile_v10_relative(
+                    "C_INCL_NDK  = $(PREFIX)/$(TARGET)/ndk39-include\n"
+                ))
+                result = run_find_acd(shell, script_path, project, acd, home)
+                info = parse_kv(result.stdout)
+                if info.get("BUILD") not in ("make compile", "make cleanbefore build"):
+                    fail(f"non-uploading+invalid path: expected BUILD=:\n{result.stdout}")
+                if info.get("COMPILER_STATUS") == "ready":
+                    fail(f"non-uploading+invalid path: COMPILER_STATUS ready:\n{result.stdout}")
+                if not any(line.startswith("PROBLEM=project Makefile compiler path:") for line in result.stdout.splitlines()):
+                    fail(f"non-uploading+invalid path: missing compiler PROBLEM:\n{result.stdout}")
+            finally:
+                if temporary:
+                    os.remove(script_path)
+                shutil.rmtree(acd, ignore_errors=True)
+                shutil.rmtree(project, ignore_errors=True)
+        else:
+            print("RESULT build-readiness-find-acd NOT VERIFIED")
+            print("REASON=sh is not on PATH")
+
+        # 6. Upload-capable target with an otherwise valid compiler path.
+        acd = tempfile.mkdtemp(prefix="akb-ready-upload-acd-")
+        project = tempfile.mkdtemp(prefix="akb-ready-upload-")
+        try:
+            stub_acd_compilers(acd, {"GCC-6.50-Dev": ["ndk39-include"]})
+            unsafe = (
+                "# ApolloCrossDev Makefile Template v1.2\n"
+                "ACD_ROOT ?= $(or $(APOLLOCROSSDEV),$(PWD)/../..)\n"
+                "PREFIX = $(ACD_ROOT)/Compilers/GCC-6.50-Dev\n"
+                "C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc\n"
+                "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk39-include\n"
+                "C_INCL_ALL = -I. -I$(C_INCL_NDK)\n"
+                "C_FLAGS = $(C_INCL_ALL)\n"
+                "compile:\n"
+                "\tacp probe host\n"
+            )
+            template = write_makefile(project, unsafe, "unsafe.mk")
+            env = os.environ.copy()
+            env["HOME"] = home
+            env["APOLLOCROSSDEV"] = acd
+            result = run_py(guided_args(project, template), env=env)
+            commands, agents = agents_commands(project)
+            if commands:
+                fail(f"upload-capable must not document Make: {commands}\n{agents}")
+            if "No Make target was classified as non-uploading" not in agents:
+                fail(f"upload-capable missing classification refusal:\n{agents}")
+            assessment = resolve_compiler.assess_build_readiness(
+                open(os.path.join(project, "Makefile"), encoding="utf-8").read(),
+                project,
+                acd_root=acd,
+                env=env,
+                home=home,
+            )
+            if assessment["compiler"]["status"] != "ready":
+                fail(f"upload-capable fixture should have a valid PREFIX: {assessment}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+
+        # 7. Valid compiler path but missing NDK.
+        acd = tempfile.mkdtemp(prefix="akb-ready-ndkmiss-acd-")
+        project = tempfile.mkdtemp(prefix="akb-ready-ndkmiss-")
+        try:
+            stub_acd_compilers(acd, {"GCC-6.50-Dev": []})
+            text = V12_COMPILE.replace(
+                "C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc\n",
+                "C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc\n"
+                "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk39-include\n"
+                "C_INCL_ALL = -I. -I$(C_INCL_NDK)\n"
+                "C_FLAGS = $(C_INCL_ALL)\n",
+            )
+            template = write_makefile(project, text, "ndkmiss.mk")
+            env = os.environ.copy()
+            env["HOME"] = home
+            env["APOLLOCROSSDEV"] = acd
+            result = run_py(guided_args(project, template), env=env)
+            commands, agents = agents_commands(project)
+            if commands:
+                fail(f"missing NDK must not document Make: {commands}\n{agents}")
+            if "documented NDK 3.9 directory is absent" not in agents:
+                fail(f"missing NDK AGENTS.md missing NDK blocker:\n{agents}")
+            if "ndk-include" not in agents:
+                fail(f"missing NDK AGENTS.md must warn against ndk-include:\n{agents}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+
+        # 8. Existing AGENTS.md preserved despite a detected mismatch.
+        acd = tempfile.mkdtemp(prefix="akb-ready-keep-acd-")
+        project = tempfile.mkdtemp(prefix="akb-ready-keep-")
+        try:
+            stub_acd_compilers(acd, {"GCC-6.50-Dev": []})
+            hand = os.path.join(project, "AGENTS.md")
+            with open(hand, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write("# keep\nmake compile\n")
+            before_bytes = open(hand, "rb").read()
+            template = write_makefile(project, makefile_v10_relative(
+                "C_INCL_NDK  = $(PREFIX)/$(TARGET)/ndk39-include\n"
+            ), "keep.mk")
+            env = os.environ.copy()
+            env["HOME"] = home
+            env["APOLLOCROSSDEV"] = acd
+            result = run_py(guided_args(project, template), env=env)
+            if open(hand, "rb").read() != before_bytes:
+                fail("readiness mismatch rewrote AGENTS.md")
+            if "NOTE=existing AGENTS.md was left unchanged" not in result.stdout:
+                fail(f"readiness mismatch missing NOTE:\n{result.stdout}")
+            if "compilation is blocked" not in result.stdout:
+                fail(f"readiness mismatch missing blocked detail:\n{result.stdout}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+
+        # 9. C-only and experimental C++ generation retain existing behaviour.
+        acd = tempfile.mkdtemp(prefix="akb-ready-lang-acd-")
+        c_project = tempfile.mkdtemp(prefix="akb-ready-c-")
+        cxx_project = tempfile.mkdtemp(prefix="akb-ready-cxx-")
+        try:
+            stub_acd_compilers(acd, {"GCC-6.50-Dev": ["ndk39-include"]})
+            text = V12_COMPILE.replace(
+                "C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc\n",
+                "C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc\n"
+                "# C_COMPILER = $(PREFIX)/bin/m68k-amigaos-g++\n"
+                "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk39-include\n"
+                "C_INCL_ALL = -I. -I$(C_INCL_NDK)\n"
+                "C_FLAGS = $(C_INCL_ALL)\n",
+            )
+            env = os.environ.copy()
+            env["HOME"] = home
+            env["APOLLOCROSSDEV"] = acd
+            c_template = write_makefile(c_project, text, "c.mk")
+            c_run = run_py(guided_args(c_project, c_template), env=env)
+            if c_run.returncode != 0 or not os.path.isfile(os.path.join(c_project, "main.c")):
+                fail(f"C-only readiness lost main.c:\n{c_run.stdout}")
+            if os.path.isfile(os.path.join(c_project, "main.cpp")):
+                fail("C-only readiness wrote main.cpp")
+            c_cmds, c_agents = agents_commands(c_project)
+            if c_cmds != ["make compile"]:
+                fail(f"C-only with commented g++ line must stay ready: {c_cmds}\n{c_agents}")
+            cxx_args = guided_args(cxx_project, write_makefile(cxx_project, text, "cxx.mk"))
+            # Replace languages C with C++.
+            cxx_args = [a if a != "C" else "C++" for a in cxx_args]
+            cxx_run = run_py(cxx_args, env=env)
+            if cxx_run.returncode != 0 or not os.path.isfile(os.path.join(cxx_project, "main.cpp")):
+                fail(f"C++ readiness lost main.cpp:\n{cxx_run.stdout}")
+            if os.path.isfile(os.path.join(cxx_project, "main.c")):
+                fail("C++ readiness wrote main.c")
+            if "NOTE=LANGUAGE C++:" not in cxx_run.stdout:
+                fail(f"C++ readiness missing language notes:\n{cxx_run.stdout}")
+            if "not verified" not in cxx_run.stdout and "are not verified" not in cxx_run.stdout:
+                fail(f"C++ readiness dropped experimental unverified status:\n{cxx_run.stdout}")
+            cxx_cmds, cxx_agents = agents_commands(cxx_project)
+            if cxx_cmds != ["make compile"]:
+                fail(f"C++ with g++ present should document Make: {cxx_cmds}\n{cxx_agents}")
+            if "C++ compilation, linkage, and hardware execution are not verified" not in cxx_agents:
+                fail(f"C++ AGENTS.md lost unverified caveat:\n{cxx_agents}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(c_project, ignore_errors=True)
+            shutil.rmtree(cxx_project, ignore_errors=True)
+
+        # 10. C-only stays ready without g++; C++ Makefile requires g++.
+        acd = tempfile.mkdtemp(prefix="akb-ready-gpp-acd-")
+        c_project = tempfile.mkdtemp(prefix="akb-ready-gpp-c-")
+        cxx_project = tempfile.mkdtemp(prefix="akb-ready-gpp-cxx-")
+        try:
+            stub_acd_compilers(
+                acd,
+                {"GCC-6.50-Dev": ["ndk39-include"]},
+                binaries=("m68k-amigaos-gcc", "vasmm68k_mot"),
+            )
+            text = V12_COMPILE.replace(
+                "C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc\n",
+                "C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc\n"
+                "# C_COMPILER = $(PREFIX)/bin/m68k-amigaos-g++\n"
+                "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk39-include\n"
+                "C_INCL_ALL = -I. -I$(C_INCL_NDK)\n"
+                "C_FLAGS = $(C_INCL_ALL)\n",
+            )
+            env = os.environ.copy()
+            env["HOME"] = home
+            env["APOLLOCROSSDEV"] = acd
+            c_run = run_py(guided_args(c_project, write_makefile(c_project, text, "c.mk")), env=env)
+            c_cmds, c_agents = agents_commands(c_project)
+            if c_run.returncode != 0 or c_cmds != ["make compile"]:
+                fail(f"C-only without g++ binary must remain ready:\n{c_run.stdout}\n{c_agents}")
+            c_assess = resolve_compiler.assess_build_readiness(
+                open(os.path.join(c_project, "Makefile"), encoding="utf-8").read(),
+                c_project,
+                acd_root=acd,
+                env=env,
+                home=home,
+            )
+            if c_assess["compiler"].get("gpp_required"):
+                fail("C-only Makefile must not require g++")
+            cxx_args = guided_args(cxx_project, write_makefile(cxx_project, text, "cxx.mk"))
+            cxx_args = [a if a != "C" else "C++" for a in cxx_args]
+            cxx_run = run_py(cxx_args, env=env)
+            cxx_cmds, cxx_agents = agents_commands(cxx_project)
+            if cxx_cmds:
+                fail(f"C++ without g++ binary must not document Make: {cxx_cmds}\n{cxx_agents}")
+            if "m68k-amigaos-g++ is missing" not in cxx_agents:
+                fail(f"C++ without g++ missing blocker text:\n{cxx_agents}")
+            if "C++ compilation remains unverified" not in cxx_agents:
+                fail(f"C++ without g++ dropped unverified note:\n{cxx_agents}")
+            written = open(os.path.join(cxx_project, "Makefile"), encoding="utf-8").read()
+            if "CXX_COMPILER" not in written or "m68k-amigaos-g++" not in written:
+                fail("C++ guided Makefile did not configure CXX_COMPILER")
+            cxx_assess = resolve_compiler.assess_build_readiness(
+                written, cxx_project, acd_root=acd, env=env, home=home,
+            )
+            if not cxx_assess["compiler"].get("gpp_required"):
+                fail("C++ Makefile must require g++")
+            if cxx_assess["ready"]:
+                fail("C++ without g++ must not be ready")
+            if "NOTE=LANGUAGE C++:" not in cxx_run.stdout:
+                fail(f"C++ without g++ lost language notes:\n{cxx_run.stdout}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(c_project, ignore_errors=True)
+            shutil.rmtree(cxx_project, ignore_errors=True)
+
+        # 11. Real installed v1.0 template: out-of-tree blocks; BUILD stays cleanbefore.
+        real_template = os.path.expanduser(
+            "~/ApolloCrossDev/Projects/_makefiles/Makefile"
+        )
+        if not os.path.isfile(real_template):
+            print("RESULT real-v10-template NOT VERIFIED")
+            print("REASON=installed ApolloCrossDev v1.0 template is not present")
+        else:
+            with open(real_template, encoding="utf-8", errors="replace") as fh:
+                real_text = fh.read()
+            if "Makefile Template v1.0" not in real_text.splitlines()[0]:
+                fail(f"real template is not v1.0:\n{real_text.splitlines()[0]}")
+            elif "\ncompile:" in real_text or real_text.startswith("compile:"):
+                fail("real v1.0 template unexpectedly defines compile:")
+            else:
+                acd = tempfile.mkdtemp(prefix="akb-ready-realv10-acd-")
+                project = tempfile.mkdtemp(prefix="akb-ready-realv10-")
+                script_path = None
+                temporary = False
+                try:
+                    stub_acd_compilers(
+                        acd,
+                        {"GCC-6.50-Stable": ["ndk39-include"], "GCC-6.50-Dev": []},
+                    )
+                    # Copy the real template read-only into the disposable project tree.
+                    template = write_makefile(project, real_text, "real-v10.mk")
+                    env = os.environ.copy()
+                    env["HOME"] = home
+                    env["APOLLOCROSSDEV"] = acd
+                    result = run_py(guided_args(project, template), env=env)
+                    commands, agents = agents_commands(project)
+                    if commands:
+                        fail(
+                            "real v1.0 out-of-tree must not document a Make command: "
+                            f"{commands}\n{agents}"
+                        )
+                    if "Compilation is blocked" not in agents:
+                        fail(f"real v1.0 out-of-tree missing block text:\n{agents}")
+                    if "does not use APOLLOCROSSDEV" not in agents:
+                        fail(f"real v1.0 out-of-tree must not recommend APOLLOCROSSDEV:\n{agents}")
+                    if "export APOLLOCROSSDEV" in agents:
+                        fail(f"real v1.0 out-of-tree AGENTS.md suggested export:\n{agents}")
+                    written = open(os.path.join(project, "Makefile"), encoding="utf-8").read()
+                    verdict = classify_build.classify_text(written, "Makefile")
+                    if verdict.command != "make cleanbefore build":
+                        fail(
+                            "real v1.0 upload-safety classification must be "
+                            f"make cleanbefore build, got {verdict.command}"
+                        )
+                    shell = shell_path()
+                    if shell:
+                        script_path, temporary = posix_script(
+                            os.path.join(ROOT, "skills", "apollo-build", "scripts", "find-acd.sh")
+                        )
+                        find_run = run_find_acd(shell, script_path, project, acd, home)
+                        info = parse_kv(find_run.stdout)
+                        if info.get("BUILD") != "make cleanbefore build":
+                            fail(
+                                "real v1.0 find-acd BUILD= must be make cleanbefore build:\n"
+                                f"{find_run.stdout}"
+                            )
+                        if info.get("COMPILER_STATUS") == "ready":
+                            fail(f"real v1.0 out-of-tree COMPILER_STATUS ready:\n{find_run.stdout}")
+                        if not any(
+                            line.startswith("PROBLEM=project Makefile compiler path:")
+                            for line in find_run.stdout.splitlines()
+                        ):
+                            fail(f"real v1.0 missing compiler PROBLEM:\n{find_run.stdout}")
+                        if "APOLLOCROSSDEV does not fix a v1.0" not in find_run.stdout:
+                            fail(f"real v1.0 missing APOLLOCROSSDEV-does-not-fix NOTE:\n{find_run.stdout}")
+                    if result.returncode != 0:
+                        fail(f"real v1.0 guided setup failed:\n{result.stdout}")
+                finally:
+                    if temporary and script_path:
+                        os.remove(script_path)
+                    shutil.rmtree(acd, ignore_errors=True)
+                    shutil.rmtree(project, ignore_errors=True)
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+
+    if len(errors) == before:
+        print("WORKFLOW build readiness: PASS")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -2590,6 +3091,7 @@ def main(argv=None):
     check_build_commands()
     check_language_selection()
     check_ndk_diagnostics()
+    check_build_readiness()
     if args.run_toolchain:
         check_toolchain()
     else:

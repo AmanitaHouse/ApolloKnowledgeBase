@@ -72,13 +72,16 @@ PowerShell that is `wsl.exe -e sh` and translated paths. On Linux, macOS,
 WSL, and Git Bash it is `sh`.
 
 It prints `ACD_ROOT`, `PREFIX`, `GCC`, `BUILT`, the template and project
-Makefile versions, `BUILD=`, `BUILD_DETAIL=`, NDK status lines when a
-requirement is established (`NDK=`, `NDK_PATH=`, `NDK_COMPILER=`,
-`NDK_STATUS=`), `PROBLEM=`, `NOTE=` and `UPDATE=` lines (`--offline` skips
-the check on GitHub). `UPDATE=compiler` also comes from the local checkout
-alone: a compiler built before the install script or patches there last
-changed, for example after a `git pull` without a reinstall. `UPDATE=` is not
-permission to update ApolloCrossDev.
+Makefile versions, `BUILD=`, `BUILD_DETAIL=`, `PROJECT_PREFIX=`,
+`COMPILER_STATUS=`, NDK status lines when a requirement is established
+(`NDK=`, `NDK_PATH=`, `NDK_COMPILER=`, `NDK_STATUS=`), `PROBLEM=`, `NOTE=`
+and `UPDATE=` lines (`--offline` skips the check on GitHub). `BUILD=` is
+upload safety only. `PROJECT_PREFIX` / `COMPILER_STATUS` say whether the
+project Makefile's `PREFIX` resolves for this location. `UPDATE=compiler`
+also comes from the local checkout alone: a compiler built before the
+install script or patches there last changed, for example after a
+`git pull` without a reinstall. `UPDATE=` is not permission to update
+ApolloCrossDev.
 
 Documented NDK directories are taken from `KB toolchain/target-os-headers.md`:
 `m68k-amigaos/ndk39-include` (NDK 3.9) and
@@ -102,15 +105,22 @@ prints `NOTE=` uncertainty and does not invent a selection. It never treats
 
 - Fix every `PROBLEM` before building, with the user: a missing toolchain
   means installing ApolloCrossDev (`KB toolchain/index.md`, section
-  Install), a wrong `APOLLOCROSSDEV` means correcting it, and a missing
-  documented NDK directory means restoring that NDK under the reported
-  `NDK_COMPILER=` path. Do not point the build at `ndk-include` or any
-  other undocumented tree and call it the NDK.
-- A `BUILD=` line does not override an unresolved `PROBLEM=` (including a
-  missing required NDK). Do not compile until that `PROBLEM=` is resolved.
+  Install), a wrong `APOLLOCROSSDEV` means correcting it only when the
+  Makefile is a v1.2 `ACD_ROOT` shape, an unresolved v1.0
+  `$(PWD)/../../Compilers/...` path means the project location is
+  incompatible with that template (offer moving under `Projects/` or
+  updating ApolloCrossDev for v1.2+; do not rewrite PREFIX yourself), and
+  a missing documented NDK directory means restoring that NDK under the
+  reported `NDK_COMPILER=` path. Do not point the build at `ndk-include`
+  or any other undocumented tree and call it the NDK.
+- A `BUILD=` line does not override an unresolved `PROBLEM=` (including an
+  unresolved project compiler path or a missing required NDK). Do not
+  compile until that `PROBLEM=` is resolved. Upload safety is not build
+  readiness.
 - Act on the `NOTE=` lines. A `NOTE=` that a documented NDK directory is
   absent without an established requirement is informational; do not block
-  on an NDK the active configuration does not use.
+  on an NDK the active configuration does not use. A `NOTE=` that
+  `APOLLOCROSSDEV` does not fix a v1.0 PREFIX is binding for that template.
 - `UPDATE=` lines don't block the build. Mention them once per session and
   let the user decide: `UPDATE=checkout` is a quick `git pull` (mind
   `LOCAL_CHANGES=`), `UPDATE=compiler` a reinstall of about 30 minutes that
@@ -165,13 +175,14 @@ only build-command policy: do not keep a second one.
 
 | find-acd.sh line | What you do |
 |---|---|
-| `BUILD=make compile` or `BUILD=make cleanbefore build` | Run that command. `BUILD_DETAIL=` says why it was classified as non-uploading. |
+| `BUILD=make compile` or `BUILD=make cleanbefore build`, and no compiler-path or NDK `PROBLEM=` | Run that command. `BUILD_DETAIL=` says why it was classified as non-uploading. `COMPILER_STATUS=ready` confirms the project PREFIX. |
+| `BUILD=` present, but `PROBLEM=` for the project compiler path or required NDK | Do not run make. Explain the blocker. Upload safety is not permission to compile. |
 | `NOTE=` that no Make command can be recommended | Do not run make. Do not invent `make compile` or `make cleanbefore build`. |
 | no project Makefile | Use the flags in `KB toolchain/c-compiler-options.md` exactly, and the NDK from step 4. |
 
-- A `BUILD=` line is the only Make command this skill runs on its own.
-  `make` and `make debug` upload on the documented templates. Run them only
-  when the user asks.
+- A `BUILD=` line is the only Make command this skill may run on its own,
+  and only when there is no unresolved `PROBLEM=`. `make` and `make debug`
+  upload on the documented templates. Run them only when the user asks.
 - Do not treat a missing `compile` target, a recipe that never mentions
   `acp`, or an `UPDATE=` line as permission to choose a target or to update
   ApolloCrossDev. The user decides about `UPDATE=`.
