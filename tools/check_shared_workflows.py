@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import classify_build  # noqa: E402
 import resolve_compiler  # noqa: E402
 import resolve_kb  # noqa: E402
+import write_project_files  # noqa: E402
 
 errors = []
 
@@ -221,15 +222,18 @@ def check_os_friendly_detection_applicability():
         fail("main-os-friendly.cpp lost its unverified generation note")
 
     writer = open(os.path.join(ROOT, "tools", "write_project_files.py"), encoding="utf-8").read()
-    if 'replace_after(text, "- **Target core:** ", "the latest core release")' not in writer:
+    if 'DEFAULT_TARGET_CORE = "the latest core release"' not in writer:
         fail("write_project_files.py changed the default Target core")
-    if '"ApolloOS R10, AmigaOS 3.9 and AmigaOS 3.2"' not in writer:
+    if 'DEFAULT_TARGET_OS = "ApolloOS R10, AmigaOS 3.9 and AmigaOS 3.2"' not in writer:
         fail("write_project_files.py changed the default Target OS list")
-    if (
-        '"the latest core release, any V4 model, "\n'
-        '            "ApolloOS R10, AmigaOS 3.9 and AmigaOS 3.2"'
-    ) not in writer:
-        fail("write_project_files.py changed the guided @TARGETS@ default")
+    if 'DEFAULT_TARGET_MODEL = "any V4 model"' not in writer:
+        fail("write_project_files.py changed the default Target model")
+    if 'f"{target_core}, {DEFAULT_TARGET_MODEL}, {target_os}"' not in writer:
+        fail("write_project_files.py changed the guided @TARGETS@ summary shape")
+    if "--execution-mode" not in skill or "not `--mode`" not in skill:
+        fail("apollo-new-project must document --execution-mode and warn against --mode")
+    if "--target-os" not in skill or "--target-core" not in skill:
+        fail("apollo-new-project is missing --target-os / --target-core guidance")
 
     if len(errors) == before:
         print("STATIC os-friendly detection applicability: PASS")
@@ -641,6 +645,10 @@ PROJECT_DIR = $(PWD)
 C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc
 S_COMPILER = $(PREFIX)/bin/vasmm68k_mot
 O_LINKER = $(PREFIX)/bin/m68k-amigaos-gcc
+# C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk39-include
+C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk32-include/Include_H
+C_INCL_ALL = -I. -I$(C_INCL_NDK)
+C_FLAGS = $(C_INCL_ALL)
 C_SOURCEDIR = $(PROJECT_DIR)
 S_SOURCEDIR = $(PROJECT_DIR)
 C_OBJECTDIR = $(PROJECT_DIR)
@@ -683,6 +691,10 @@ PROJECT_DIR = $(PWD)
 C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc
 S_COMPILER = $(PREFIX)/bin/vasmm68k_mot
 O_LINKER = $(PREFIX)/bin/m68k-amigaos-gcc
+# C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk39-include
+C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk32-include/Include_H
+C_INCL_ALL = -I. -I$(C_INCL_NDK)
+C_FLAGS = $(C_INCL_ALL)
 C_SOURCEDIR = $(PROJECT_DIR)
 S_SOURCEDIR = $(PROJECT_DIR)
 C_OBJECTDIR = $(PROJECT_DIR)
@@ -882,7 +894,10 @@ def check_build_commands():
     acd_home = tempfile.mkdtemp(prefix="akb-agents-acd-")
     project = tempfile.mkdtemp(prefix="akb-agents-")
     try:
-        stub_acd_compilers(acd_home, {"GCC-6.50-Dev": []})
+        stub_acd_compilers(
+            acd_home,
+            {"GCC-6.50-Dev": ["ndk39-include", "ndk32-include/Include_H"]},
+        )
         safe_template = write_makefile(project, V12_COMPILE, "v12.mk")
         unsafe_template = write_makefile(
             project,
@@ -2130,9 +2145,11 @@ def check_language_selection():
             if uncommented_make_commands(agents) != ["make compile"]:
                 fail(f"{label} changed the safe command")
             makefile = read_text(os.path.join(project, "Makefile"))
-            renamed = v12_lang.replace("PROJECT_NAME = probe\n", "PROJECT_NAME = probe1\n", 1)
-            if makefile != renamed:
-                fail(f"{label} changed more than PROJECT_NAME")
+            expected, _, _, ndk_ok = write_project_files.adjust_makefile(
+                v12_lang, "probe1", frozenset({"C"}),
+            )
+            if not ndk_ok or makefile != expected:
+                fail(f"{label} changed more than PROJECT_NAME and the documented NDK line")
             if not assert_c_starter(label, project, v12_lang):
                 continue
             verdict = classify_build.classify_text(makefile, "Makefile")
@@ -2226,8 +2243,10 @@ def check_language_selection():
                 "asm-only", project, "assembler", ASM_BLOCK, CAVEAT_ASM, ["make compile"],
             )
             makefile = read_text(os.path.join(project, "Makefile"))
-            renamed = v12_lang.replace("PROJECT_NAME = probe\n", "PROJECT_NAME = probe1\n", 1)
-            if makefile != renamed:
+            expected, _, _, ndk_ok = write_project_files.adjust_makefile(
+                v12_lang, "probe1", frozenset({"C"}),
+            )
+            if not ndk_ok or makefile != expected:
                 fail("asm-only changed the compiler, S_FLAGS, or source lists")
             if "\n# C_COMPILER = $(PREFIX)/bin/m68k-amigaos-g++\n" not in "\n" + makefile:
                 fail("asm-only selected g++")
@@ -3064,6 +3083,397 @@ def check_build_readiness():
         print("WORKFLOW build readiness: PASS")
 
 
+def dual_ndk_template():
+    """v1.2 compile template with both documented NDK include lines."""
+    return V12_COMPILE
+
+
+def bare_compile_template():
+    """Non-uploading v1.2 shape with no identifiable C_INCL_NDK line."""
+    return lines_of("""
+# ApolloCrossDev Makefile Template v1.2
+PWD = $(shell pwd)
+ACD_ROOT ?= $(or $(APOLLOCROSSDEV),$(PWD)/../..)
+PREFIX = $(ACD_ROOT)/Compilers/GCC-6.50-Dev
+PROJECT_NAME = probe
+PROJECT_DIR = $(PWD)
+C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc
+O_LINKER = $(PREFIX)/bin/m68k-amigaos-gcc
+C_SOURCEDIR = $(PROJECT_DIR)
+C_OBJECTDIR = $(PROJECT_DIR)
+C_FILES = $(wildcard $(C_SOURCEDIR)/*.c)
+O_FILES = $(patsubst $(C_SOURCEDIR)/%.c,$(C_OBJECTDIR)/%.o,$(C_FILES))
+EXE = $(PROJECT_DIR)/$(PROJECT_NAME)
+all: init cleanbefore build upload_all cleanafter exit
+compile: init cleanbefore build cleanafter exit
+init:
+	@echo "start"
+cleanbefore:
+	@rm -f $(C_OBJECTDIR)/*.o $(EXE)
+build: $(EXE)
+	@echo "link done"
+$(EXE): $(O_FILES)
+	@$(O_LINKER) $(O_FILES) -o $(EXE) >>/dev/null
+$(C_OBJECTDIR)/%.o: $(C_SOURCEDIR)/%.c
+	@$(C_COMPILER) -c -o $@ $< >>/dev/null
+upload_all:
+	@echo upload
+cleanafter:
+	@rm -f $(C_OBJECTDIR)/*.o
+exit:
+	@echo "done"
+""")
+
+
+def agents_and_rule(project):
+    agents = read_text(os.path.join(project, "AGENTS.md"))
+    rule = read_text(os.path.join(project, ".cursor", "rules", "apollo-v4.mdc"))
+    return agents, rule
+
+
+def expect_targets(label, agents, rule, target_os, target_core):
+    os_line = f"- **Target OS:** {target_os}"
+    core_line = f"- **Target core:** {target_core}"
+    if os_line not in agents:
+        fail(f"{label}: AGENTS.md missing {os_line!r}")
+    if core_line not in agents:
+        fail(f"{label}: AGENTS.md missing {core_line!r}")
+    if os_line not in rule:
+        fail(f"{label}: Cursor rule missing {os_line!r}")
+    if core_line not in rule:
+        fail(f"{label}: Cursor rule missing {core_line!r}")
+    if "ApolloOS R10, AmigaOS 3.9 and AmigaOS 3.2" in agents and target_os != (
+        "ApolloOS R10, AmigaOS 3.9 and AmigaOS 3.2"
+    ):
+        fail(f"{label}: AGENTS.md still has the three-OS default")
+
+
+def run_target_guided(extra=None, template_text=None, ndk_dirs=None):
+    root = tempfile.mkdtemp(prefix="akb-target-")
+    acd = os.path.join(root, "ApolloCrossDev")
+    project = os.path.join(acd, "Projects", "probe1")
+    os.makedirs(project)
+    if ndk_dirs is None:
+        ndk_dirs = {
+            "GCC-6.50-Dev": ["ndk39-include", "ndk32-include/Include_H"],
+        }
+    stub_acd_compilers(acd, ndk_dirs)
+    args = guided_args(project)
+    if template_text is not None:
+        path = write_makefile(root, template_text, "template.mk")
+        args.extend(["--makefile-template", path])
+    if extra:
+        args.extend(extra)
+    env = os.environ.copy()
+    env["HOME"] = os.path.join(root, "home")
+    os.makedirs(env["HOME"], exist_ok=True)
+    env["APOLLOCROSSDEV"] = acd
+    result = run_py(args, env=env)
+    return root, project, result
+
+
+def check_target_selection():
+    """Guided --target-os / --target-core preserve explicit developer targets."""
+    before = len(errors)
+
+    # Parser unit checks for invalid / ambiguous inputs.
+    _, _, os_problem = write_project_files.parse_target_os("AmigaOS")
+    if not os_problem or (
+        "ambiguous" not in os_problem.lower() and "recognize" not in os_problem
+    ):
+        fail(f"AmigaOS alone must be rejected: {os_problem!r}")
+    _, _, os_problem = write_project_files.parse_target_os("Windows")
+    if not os_problem:
+        fail("unknown OS must be rejected")
+    _, core_problem = write_project_files.parse_target_core("12841")
+    if not core_problem:
+        fail("bare core number must be rejected")
+    _, core_problem = write_project_files.parse_target_core("Core 12841-12798")
+    if not core_problem or "range" not in core_problem.lower():
+        fail(f"reversed core range must be rejected: {core_problem!r}")
+    _, core_problem = write_project_files.parse_target_core("Core 12798-12841+")
+    if not core_problem or "ambiguous" not in core_problem.lower():
+        fail(f"range-plus core must be rejected: {core_problem!r}")
+
+    display, oses, problem = write_project_files.parse_target_os(
+        "AmigaOS 3.9 and AmigaOS 3.2"
+    )
+    if problem or display != "AmigaOS 3.9 and AmigaOS 3.2" or oses != {
+        write_project_files.OS_39, write_project_files.OS_32
+    }:
+        fail(f"multi-OS parse failed: {display!r} {oses!r} {problem!r}")
+    core, problem = write_project_files.parse_target_core("Core 12798-12841")
+    if problem or core != "Core 12798\u201312841":
+        fail(f"core range normalize failed: {core!r} {problem!r}")
+
+    # 1. Defaults when none specified.
+    root, project, result = run_target_guided(template_text=dual_ndk_template())
+    try:
+        if result.returncode != 0:
+            fail(f"default targets guided run failed:\n{result.stdout}")
+        else:
+            agents, rule = agents_and_rule(project)
+            expect_targets(
+                "defaults",
+                agents,
+                rule,
+                "ApolloOS R10, AmigaOS 3.9 and AmigaOS 3.2",
+                "the latest core release",
+            )
+            makefile = read_text(os.path.join(project, "Makefile"))
+            if not re.search(
+                r"(?m)^C_INCL_NDK = \$\(PREFIX\)/\$\(TARGET\)/ndk39-include$",
+                makefile,
+            ):
+                fail("default three-OS list did not activate ndk39-include")
+            main_c = read_text(os.path.join(project, "main.c"))
+            if "Reviewed applicability: Core 12798-12841, AmigaOS 3.9 and AmigaOS 3.2." not in main_c:
+                fail("default run rewrote reviewed starter applicability evidence")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+    # 2. Explicit AmigaOS 3.9.
+    root, project, result = run_target_guided(
+        extra=["--target-os", "AmigaOS 3.9"],
+        template_text=dual_ndk_template(),
+    )
+    try:
+        if result.returncode != 0:
+            fail(f"AmigaOS 3.9 guided run failed:\n{result.stdout}")
+        else:
+            agents, rule = agents_and_rule(project)
+            expect_targets("amigaos-3.9", agents, rule, "AmigaOS 3.9", "the latest core release")
+            makefile = read_text(os.path.join(project, "Makefile"))
+            if not re.search(
+                r"(?m)^C_INCL_NDK = \$\(PREFIX\)/\$\(TARGET\)/ndk39-include$",
+                makefile,
+            ):
+                fail("AmigaOS 3.9 did not activate ndk39-include")
+            if re.search(r"(?m)^C_INCL_NDK = \$\(PREFIX\)/\$\(TARGET\)/ndk32-include", makefile):
+                fail("AmigaOS 3.9 left ndk32-include active")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+    # 3. Explicit Core 12798–12841.
+    root, project, result = run_target_guided(
+        extra=["--target-core", "Core 12798–12841"],
+        template_text=dual_ndk_template(),
+    )
+    try:
+        if result.returncode != 0:
+            fail(f"core-range guided run failed:\n{result.stdout}")
+        else:
+            agents, rule = agents_and_rule(project)
+            expect_targets(
+                "core-range",
+                agents,
+                rule,
+                "ApolloOS R10, AmigaOS 3.9 and AmigaOS 3.2",
+                "Core 12798\u201312841",
+            )
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+    # 4. Experiment 1: both explicit values together.
+    root, project, result = run_target_guided(
+        extra=[
+            "--target-os", "AmigaOS 3.9",
+            "--target-core", "Core 12798-12841",
+        ],
+        template_text=dual_ndk_template(),
+    )
+    try:
+        if result.returncode != 0:
+            fail(f"experiment-1 guided run failed:\n{result.stdout}")
+        else:
+            agents, rule = agents_and_rule(project)
+            expect_targets(
+                "experiment-1",
+                agents,
+                rule,
+                "AmigaOS 3.9",
+                "Core 12798\u201312841",
+            )
+            summary = "Core 12798\u201312841, any V4 model, AmigaOS 3.9"
+            main_c = read_text(os.path.join(project, "main.c"))
+            if f"Target: {summary}" not in main_c:
+                fail(f"experiment-1 starter Target summary wrong:\n{main_c[:200]}")
+            if "Reviewed applicability: Core 12798-12841, AmigaOS 3.9 and AmigaOS 3.2." not in main_c:
+                fail("experiment-1 rewrote reviewed applicability evidence")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+    # 5. Supported multiple-OS selection (no AmigaOS 3.9 → ndk32).
+    root, project, result = run_target_guided(
+        extra=["--target-os", "ApolloOS R10, AmigaOS 3.2"],
+        template_text=dual_ndk_template(),
+        ndk_dirs={"GCC-6.50-Dev": ["ndk32-include/Include_H"]},
+    )
+    try:
+        if result.returncode != 0:
+            fail(f"multi-OS guided run failed:\n{result.stdout}")
+        else:
+            agents, rule = agents_and_rule(project)
+            expect_targets(
+                "multi-os",
+                agents,
+                rule,
+                "ApolloOS R10 and AmigaOS 3.2",
+                "the latest core release",
+            )
+            makefile = read_text(os.path.join(project, "Makefile"))
+            if not re.search(
+                r"(?m)^C_INCL_NDK = \$\(PREFIX\)/\$\(TARGET\)/ndk32-include/Include_H$",
+                makefile,
+            ):
+                fail("ApolloOS+AmigaOS 3.2 did not keep ndk32-include active")
+            if re.search(r"(?m)^C_INCL_NDK = \$\(PREFIX\)/\$\(TARGET\)/ndk39-include$", makefile):
+                fail("ApolloOS+AmigaOS 3.2 activated ndk39-include")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+    # 6. Invalid inputs refuse to write files.
+    for label, extra in (
+        ("bad-os", ["--target-os", "AmigaOS"]),
+        ("bad-core", ["--target-core", "latest"]),
+    ):
+        root, project, result = run_target_guided(extra=extra, template_text=dual_ndk_template())
+        try:
+            if result.returncode == 0 or "PROBLEM=" not in result.stdout:
+                fail(f"{label} must print PROBLEM= and exit non-zero:\n{result.stdout}")
+            if os.path.exists(os.path.join(project, "AGENTS.md")):
+                fail(f"{label} wrote AGENTS.md after rejection")
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    # 7–8. Existing project files remain unchanged; AGENTS/rule stay consistent on create.
+    root, project, result = run_target_guided(
+        extra=["--target-os", "AmigaOS 3.9", "--target-core", "Core 12841+"],
+        template_text=dual_ndk_template(),
+    )
+    try:
+        agents_path = os.path.join(project, "AGENTS.md")
+        rule_path = os.path.join(project, ".cursor", "rules", "apollo-v4.mdc")
+        before_agents = open(agents_path, "rb").read()
+        before_rule = open(rule_path, "rb").read()
+        again = run_py(
+            guided_args(project, os.path.join(root, "template.mk"))
+            + ["--target-os", "AmigaOS 3.2", "--target-core", "Core 1"],
+            env={
+                **os.environ,
+                "HOME": os.path.join(root, "home"),
+                "APOLLOCROSSDEV": os.path.join(root, "ApolloCrossDev"),
+            },
+        )
+        if again.returncode != 0:
+            fail(f"second guided run failed:\n{again.stdout}")
+        if open(agents_path, "rb").read() != before_agents:
+            fail("second guided run rewrote existing AGENTS.md")
+        if open(rule_path, "rb").read() != before_rule:
+            fail("second guided run rewrote existing Cursor rule")
+        if "SKIPPED=" not in again.stdout:
+            fail("second guided run did not report SKIPPED= for existing files")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+    # 9. Basic setup rejects explicit target flags (does not discard them).
+    basic = tempfile.mkdtemp(prefix="akb-target-basic-")
+    try:
+        plain = run_py([
+            "tools/write_project_files.py",
+            "--project", basic,
+            "--setup", "basic",
+            "--name", "basic1",
+            "--no-claude",
+        ])
+        if plain.returncode != 0:
+            fail(f"basic setup without target flags failed:\n{plain.stdout}")
+        agents, _rule = agents_and_rule(basic)
+        if "- **Target OS:** ApolloOS R10, AmigaOS 3.9 and AmigaOS 3.2" not in agents:
+            fail("basic setup did not keep default Target OS")
+        if "- **Target core:** the latest core release" not in agents:
+            fail("basic setup did not keep default Target core")
+        if "not set yet" not in agents:
+            fail("basic setup lost unset fields")
+
+        refused = tempfile.mkdtemp(prefix="akb-target-basic-refuse-")
+        try:
+            result = run_py([
+                "tools/write_project_files.py",
+                "--project", refused,
+                "--setup", "basic",
+                "--name", "basic2",
+                "--no-claude",
+                "--target-os", "AmigaOS 3.9",
+                "--target-core", "Core 12798–12841",
+            ])
+            if result.returncode == 0 or "PROBLEM=" not in result.stdout:
+                fail(f"basic setup must reject explicit target flags:\n{result.stdout}")
+            if "does not accept --target-os or --target-core" not in result.stdout:
+                fail(f"basic setup rejection was not actionable:\n{result.stdout}")
+            if os.path.exists(os.path.join(refused, "AGENTS.md")):
+                fail("basic setup wrote AGENTS.md after rejecting target flags")
+        finally:
+            shutil.rmtree(refused, ignore_errors=True)
+    finally:
+        shutil.rmtree(basic, ignore_errors=True)
+
+    # 10. Wrong NDK line present → no claimed readiness.
+    root, project, result = run_target_guided(
+        extra=["--target-os", "AmigaOS 3.9"],
+        template_text=(
+            bare_compile_template()
+            + "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk32-include/Include_H\n"
+        ),
+        ndk_dirs={"GCC-6.50-Dev": ["ndk32-include/Include_H"]},
+    )
+    try:
+        if result.returncode != 0:
+            fail(f"ndk-missing-line run failed unexpectedly:\n{result.stdout}")
+        agents = read_text(os.path.join(project, "AGENTS.md"))
+        if uncommented_make_commands(agents):
+            fail("missing ndk39 line still documented a Make command")
+        if "could not be established" not in agents and "names no build command" not in agents:
+            fail(f"missing ndk39 line did not explain NDK uncertainty:\n{agents}")
+        makefile = read_text(os.path.join(project, "Makefile"))
+        if re.search(r"(?m)^C_INCL_NDK = \$\(PREFIX\)/\$\(TARGET\)/ndk39-include$", makefile):
+            fail("missing-ndk39 case invented an ndk39 line")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+    # 11. No identifiable NDK configuration → preserve Makefile, no Make command.
+    root, project, result = run_target_guided(
+        extra=["--target-os", "AmigaOS 3.9"],
+        template_text=bare_compile_template(),
+        ndk_dirs={"GCC-6.50-Dev": ["ndk39-include"]},
+    )
+    try:
+        if result.returncode != 0:
+            fail(f"no-ndk-line run failed unexpectedly:\n{result.stdout}")
+        agents = read_text(os.path.join(project, "AGENTS.md"))
+        if uncommented_make_commands(agents):
+            fail("template without NDK lines still documented a Make command")
+        if "could not be established" not in agents:
+            fail(f"no-ndk-line AGENTS.md did not report NDK uncertainty:\n{agents}")
+        if "identifiable C_INCL_NDK" not in result.stdout and "build readiness is not claimed" not in result.stdout:
+            fail(f"no-ndk-line stdout missing uncertainty note:\n{result.stdout}")
+        before_mk = bare_compile_template()
+        # PROJECT_NAME is still rewritten; NDK section must remain absent.
+        makefile = read_text(os.path.join(project, "Makefile"))
+        if "C_INCL_NDK" in makefile:
+            fail("no-ndk-line case invented a C_INCL_NDK assignment")
+        if "ndk39-include" in makefile or "ndk32-include" in makefile:
+            fail("no-ndk-line case invented an NDK include path")
+        if "PROJECT_NAME = probe1" not in makefile:
+            fail("no-ndk-line case lost PROJECT_NAME rewrite")
+        del before_mk
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+    if len(errors) == before:
+        print("WORKFLOW guided target selection: PASS")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -3092,6 +3502,7 @@ def main(argv=None):
     check_language_selection()
     check_ndk_diagnostics()
     check_build_readiness()
+    check_target_selection()
     if args.run_toolchain:
         check_toolchain()
     else:
