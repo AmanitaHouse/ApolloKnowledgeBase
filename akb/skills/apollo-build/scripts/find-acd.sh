@@ -3,14 +3,19 @@
 #
 # Usage: sh find-acd.sh [--offline] [project folder]
 # Prints KEY=value lines (ACD_ROOT, PREFIX, GCC, BUILT, TEMPLATE, MAKEFILE,
-# BUILD, BUILD_DETAIL, NDK, NDK_PATH, NDK_COMPILER, NDK_STATUS) and exits 0
-# when the GCC-6.50-Dev toolchain is complete and no confirmed NDK PROBLEM
-# remains; otherwise prints PROBLEM= lines and exits 1.
+# BUILD, BUILD_DETAIL, PROJECT_PREFIX, COMPILER_STATUS, NDK, NDK_PATH,
+# NDK_COMPILER, NDK_STATUS) and exits 0 when the GCC-6.50-Dev toolchain is
+# complete and no confirmed compiler-path or NDK PROBLEM remains; otherwise
+# prints PROBLEM= lines and exits 1.
 #
 # When the project has a Makefile, BUILD= is the one verified non-uploading
-# command (make compile, or make cleanbefore build). If that cannot be
-# established, a NOTE= says why no Make command can be recommended. This
-# script does not run make. A BUILD= line does not clear an NDK PROBLEM=.
+# command (make compile, or make cleanbefore build). That is upload safety
+# only. PROJECT_PREFIX / COMPILER_STATUS say whether the Makefile's PREFIX
+# resolves for this project location. If that cannot be established, a
+# PROBLEM= blocks compilation even when BUILD= is present. A NOTE= says why
+# no Make command can be recommended when classification fails. This script
+# does not run make. A BUILD= line does not clear a compiler-path or NDK
+# PROBLEM=.
 #
 # Documented NDK headers (toolchain/target-os-headers.md), under PREFIX:
 #   NDK 3.9  m68k-amigaos/ndk39-include
@@ -46,17 +51,18 @@ project=${1:-.}
 problems=0
 problem() { echo "PROBLEM=$1"; problems=1; }
 
-find_classify_prog() {
+find_tools_prog() {
+    name=$1
     script_dir=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
     tools=$(CDPATH= cd -- "$script_dir/../../../tools" 2>/dev/null && pwd || true)
-    if [ -n "$tools" ] && [ -f "$tools/classify_build.py" ]; then
-        printf '%s\n' "$tools/classify_build.py"
+    if [ -n "$tools" ] && [ -f "$tools/$name" ]; then
+        printf '%s\n' "$tools/$name"
         return 0
     fi
     dir=$(CDPATH= cd -- . && pwd)
     while [ "$dir" != "/" ]; do
-        if [ -f "$dir/tools/classify_build.py" ]; then
-            printf '%s\n' "$dir/tools/classify_build.py"
+        if [ -f "$dir/tools/$name" ]; then
+            printf '%s\n' "$dir/tools/$name"
             return 0
         fi
         nxt=$(CDPATH= cd -- "$dir/.." && pwd)
@@ -64,6 +70,14 @@ find_classify_prog() {
         dir=$nxt
     done
     return 1
+}
+
+find_classify_prog() {
+    find_tools_prog classify_build.py
+}
+
+find_resolve_compiler_prog() {
+    find_tools_prog resolve_compiler.py
 }
 
 find_py() {
@@ -101,6 +115,63 @@ report_build() {
     else
         echo "NOTE=${reason:-no Make command can be recommended automatically: the Makefile could not be classified}"
     fi
+}
+
+# Effective project compiler PREFIX for this Makefile and location.
+# Upload-safety BUILD= stays separate. Emits PROJECT_PREFIX, COMPILER_STATUS,
+# and PROBLEM= when the path cannot be used.
+report_project_compiler() {
+    file=$1
+    project=$2
+    acd_root=$3
+    prog=$(find_resolve_compiler_prog) || {
+        echo "NOTE=could not check project compiler PREFIX: resolve_compiler.py is not available"
+        return
+    }
+    py=$(find_py) || {
+        echo "NOTE=could not check project compiler PREFIX: python3 is not available"
+        return
+    }
+    output=$("$py" "$prog" --makefile "$file" --project "$project" --acd-root "$acd_root" --emit) || true
+    printf '%s\n' "$output"
+    if printf '%s\n' "$output" | grep -q '^PROBLEM='; then
+        problems=1
+    fi
+    return 0
+}
+
+# Version-specific APOLLOCROSSDEV guidance from the project Makefile, or the
+# ApolloCrossDev template when the project has none yet.
+report_apollocrossdev_note() {
+    project=$1
+    acd_root=$2
+    [ -n "$APOLLOCROSSDEV" ] && return 0
+    file=""
+    if [ -f "$project/Makefile" ]; then
+        file=$project/Makefile
+    elif [ -f "$acd_root/Projects/_makefiles/Makefile" ]; then
+        file=$acd_root/Projects/_makefiles/Makefile
+    else
+        return 0
+    fi
+    prefix_line=$(
+        sed 's/\r$//' "$file" \
+            | sed -n '/^[[:space:]]*#/d; /^[[:space:]]*PREFIX[[:space:]]*=/p' \
+            | tail -n 1
+    )
+    case $prefix_line in
+        *'$(ACD_ROOT)/Compilers/'*)
+            if ! ndk_acd_root_resolves "$project" "$acd_root"; then
+                echo "NOTE=APOLLOCROSSDEV is not set; this v1.2 Makefile needs it for an out-of-tree project (export APOLLOCROSSDEV=$acd_root)"
+            fi
+            ;;
+        *'$(PWD)/../../Compilers/'*)
+            parent=$(CDPATH= cd -- "$project/../.." 2>/dev/null && pwd || true)
+            if [ -z "$parent" ] || [ "$parent" != "$acd_root" ]; then
+                echo "NOTE=template v1.0 PREFIX=\$(PWD)/../../Compilers/... does not resolve for this project location. Setting APOLLOCROSSDEV does not fix a v1.0 Makefile. Place the project under $acd_root/Projects/<name>, or update ApolloCrossDev for a v1.2+ template that uses ACD_ROOT."
+            fi
+            ;;
+    esac
 }
 
 
@@ -242,7 +313,7 @@ ndk_note_absent_under() {
     fi
 }
 
-# Report documented NDK presence. PROBLEM only when the effective compiler
+# Report documented NDK presence. PROBLEM only when the effective compile
 # PREFIX and an active wired C_INCL_NDK requirement are both established.
 # Never treat ndk-include as OK.
 report_ndk() {
@@ -320,7 +391,7 @@ if [ -z "$root" ]; then
     exit 1
 fi
 echo "ACD_ROOT=$root"
-[ -n "$APOLLOCROSSDEV" ] || echo "NOTE=APOLLOCROSSDEV is not set; projects outside $root/Projects need it (export APOLLOCROSSDEV=$root)"
+report_apollocrossdev_note "$project" "$root"
 
 prefix="$root/Compilers/GCC-6.50-Dev"
 echo "PREFIX=$prefix"
@@ -350,6 +421,7 @@ fi
 if [ -f "$project/Makefile" ]; then
     echo "MAKEFILE=$(sed -n 's/^# ApolloCrossDev Makefile Template //p' "$project/Makefile" | head -n 1)"
     report_build "$project/Makefile"
+    report_project_compiler "$project/Makefile" "$project" "$root"
 fi
 
 report_ndk "$project" "$root"

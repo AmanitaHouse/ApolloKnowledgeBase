@@ -62,6 +62,7 @@ TOOL_FILES = (
     "schema.json",
     "submit_gate.py",
     "classify_build.py",
+    "resolve_compiler.py",
     "write_project_files.py",
     "wsl_reexec.sh",
 )
@@ -89,6 +90,7 @@ REQUIRED_PACKAGE_PATHS = (
     "templates/files/lesson.md",
     "tools/resolve_kb.py",
     "tools/classify_build.py",
+    "tools/resolve_compiler.py",
     "tools/write_project_files.py",
     "tools/submit_gate.py",
     "tools/wsl_reexec.sh",
