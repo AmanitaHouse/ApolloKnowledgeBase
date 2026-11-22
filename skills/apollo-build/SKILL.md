@@ -47,7 +47,16 @@ Pass that same project folder to `scripts/find-acd.sh`. Honour
 ## 1. Know the target
 
 Read the project's `AGENTS.md`: target OS, execution mode, languages. If it
-is missing, ask; don't guess the target OS, it decides the headers.
+is missing, ask; don't guess the target OS, it decides the headers. If the
+language support section says guided setup generated a C-style `main.c`
+starter rather than a dedicated C++ or assembler program, that request was
+not implemented. Building `main.c` does not verify C++ or assembler. When
+`C_COMPILER` is `m68k-amigaos-g++`, `g++` may treat `main.c` as C++ source
+because the ApolloCrossDev template does not pass `-x`; that still does not
+verify C++. Do not describe the result as a verified program in a language
+the section says was not generated. `.cpp` files are not part of the build
+until the Makefile collects them as `KB toolchain/project-makefile.md`
+describes. A non-uploading `BUILD=` line does not change that.
 
 ## 2. Check the toolchain
 

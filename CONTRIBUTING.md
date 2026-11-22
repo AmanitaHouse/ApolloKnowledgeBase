@@ -541,6 +541,8 @@ description length, a single-line description, body length, and that every
 directory), `tools/check_cursor_plugin.py` (manifests, the generated
 `akb/` package, and a temporary copy of that package) and
 `tools/check_claude_plugin.py` (plugin manifests). Those checks do not
-load Cursor or Claude Code. The workflow check prints
-`NOT VERIFIED` for a guided build when ApolloCrossDev is absent, and that
-line is not a successful compile.
+load Cursor or Claude Code. The default workflow check is fixture-only and
+does not run Make; it prints `RESULT guided-build SKIPPED`. Pass
+`--run-toolchain` for an authorised real compile probe. That probe may
+print `NOT VERIFIED` when ApolloCrossDev is absent, and that line is not
+a successful compile.
