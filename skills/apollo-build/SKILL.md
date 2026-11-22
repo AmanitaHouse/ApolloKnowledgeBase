@@ -57,16 +57,45 @@ PowerShell that is `wsl.exe -e sh` and translated paths. On Linux, macOS,
 WSL, and Git Bash it is `sh`.
 
 It prints `ACD_ROOT`, `PREFIX`, `GCC`, `BUILT`, the template and project
-Makefile versions, `BUILD=`, `BUILD_DETAIL=`, `PROBLEM=`, `NOTE=` and
-`UPDATE=` lines (`--offline` skips the check on GitHub). `UPDATE=compiler`
-also comes from the local checkout alone: a compiler built before the
-install script or patches there last changed, for example after a `git pull`
-without a reinstall. `UPDATE=` is not permission to update ApolloCrossDev.
+Makefile versions, `BUILD=`, `BUILD_DETAIL=`, NDK status lines when a
+requirement is established (`NDK=`, `NDK_PATH=`, `NDK_COMPILER=`,
+`NDK_STATUS=`), `PROBLEM=`, `NOTE=` and `UPDATE=` lines (`--offline` skips
+the check on GitHub). `UPDATE=compiler` also comes from the local checkout
+alone: a compiler built before the install script or patches there last
+changed, for example after a `git pull` without a reinstall. `UPDATE=` is not
+permission to update ApolloCrossDev.
+
+Documented NDK directories are taken from `KB toolchain/target-os-headers.md`:
+`m68k-amigaos/ndk39-include` (NDK 3.9) and
+`m68k-amigaos/ndk32-include/Include_H` (NDK 3.2), under the effective
+compiler `PREFIX` when that location can be established from the Makefile
+without evaluating Make. Recognised shapes are
+`PREFIX=$(ACD_ROOT)/Compilers/GCC-6.50-Dev|Stable|Base` when `ACD_ROOT`
+resolves (set `APOLLOCROSSDEV`, or a project two levels under
+ApolloCrossDev), and the v1.0 form
+`PREFIX=$(PWD)/../../Compilers/GCC-6.50-...` only when the project is two
+levels under ApolloCrossDev. A Dev/Stable/Base label alone is not a path.
+`PREFIX=` from find-acd.sh itself remains the GCC-6.50-Dev completeness
+check and is not proof that the project Makefile uses Dev. An active NDK
+requirement needs an uncommented `C_INCL_NDK` that names a documented path
+and is shown to feed flags through `C_INCL_ALL` and `C_FLAGS` (the template
+shape); without a Makefile, a concrete `Target OS` in `AGENTS.md`
+(AmigaOS 3.9 → NDK 3.9; AmigaOS 3.2 or ApolloOS R10 → NDK 3.2). If the
+compiler location or NDK requirement cannot be established, the script
+prints `NOTE=` uncertainty and does not invent a selection. It never treats
+`m68k-amigaos/ndk-include` as a documented NDK.
 
 - Fix every `PROBLEM` before building, with the user: a missing toolchain
   means installing ApolloCrossDev (`KB toolchain/index.md`, section
-  Install), a wrong `APOLLOCROSSDEV` means correcting it.
-- Act on the `NOTE=` lines.
+  Install), a wrong `APOLLOCROSSDEV` means correcting it, and a missing
+  documented NDK directory means restoring that NDK under the reported
+  `NDK_COMPILER=` path. Do not point the build at `ndk-include` or any
+  other undocumented tree and call it the NDK.
+- A `BUILD=` line does not override an unresolved `PROBLEM=` (including a
+  missing required NDK). Do not compile until that `PROBLEM=` is resolved.
+- Act on the `NOTE=` lines. A `NOTE=` that a documented NDK directory is
+  absent without an established requirement is informational; do not block
+  on an NDK the active configuration does not use.
 - `UPDATE=` lines don't block the build. Mention them once per session and
   let the user decide: `UPDATE=checkout` is a quick `git pull` (mind
   `LOCAL_CHANGES=`), `UPDATE=compiler` a reinstall of about 30 minutes that

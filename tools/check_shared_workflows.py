@@ -948,6 +948,482 @@ def check_build_commands():
         print("WORKFLOW build-command classification: PASS")
 
 
+
+def makefile_with_ndk(prefix_variant, ndk_line, template_version="v1.2", prefix_line=None):
+    """Disposable ApolloCrossDev-shaped Makefile. Never executed by these tests."""
+    if prefix_line is None:
+        prefix_line = f"PREFIX = $(ACD_ROOT)/Compilers/{prefix_variant}"
+    return lines_of(f"""
+# ApolloCrossDev Makefile Template {template_version}
+PWD = $(shell pwd)
+ACD_ROOT ?= $(or $(APOLLOCROSSDEV),$(PWD)/../..)
+{prefix_line}
+TARGET = m68k-amigaos
+ACP = $(ACD_ROOT)/Projects/ApolloExplorer/acp/acp
+APOLLO_V4_HOST = "${{AMIGAHOST}}:Ram Disk/"
+PROJECT_NAME = probe
+PROJECT_DIR = $(PWD)
+C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc
+S_COMPILER = $(PREFIX)/bin/vasmm68k_mot
+O_LINKER = $(PREFIX)/bin/m68k-amigaos-gcc
+C_SOURCEDIR = $(PROJECT_DIR)
+S_SOURCEDIR = $(PROJECT_DIR)
+C_OBJECTDIR = $(PROJECT_DIR)
+S_OBJECTDIR = $(PROJECT_DIR)
+C_FILES = $(wildcard $(C_SOURCEDIR)/*.c)
+S_FILES = $(wildcard $(S_SOURCEDIR)/*.s)
+O_FILES = $(patsubst $(C_SOURCEDIR)/%.c,$(C_OBJECTDIR)/%.o,$(C_FILES)) $(patsubst $(S_SOURCEDIR)/%.s,$(S_OBJECTDIR)/%.o,$(S_FILES))
+EXE = $(PROJECT_DIR)/$(PROJECT_NAME)
+{ndk_line}
+C_INCL_ALL = -I. -I$(C_INCL_NDK)
+C_FLAGS = $(C_INCL_ALL)
+all: init cleanbefore build upload_all cleanafter exit
+compile: init cleanbefore build cleanafter exit
+init:
+	@clear 2>/dev/null || true
+	@echo "start"
+cleanbefore:
+	@rm -f $(C_OBJECTDIR)/*.o $(EXE)
+build: $(EXE)
+	@echo "link done"
+$(EXE): $(O_FILES)
+	@$(O_LINKER) $(O_FILES) -o $(EXE) >>/dev/null
+$(C_OBJECTDIR)/%.o: $(C_SOURCEDIR)/%.c
+	@$(C_COMPILER) $(C_FLAGS) -c -o $@ $< >>/dev/null
+$(S_OBJECTDIR)/%.o: $(S_SOURCEDIR)/%.s
+	@$(S_COMPILER) -Fhunk -o $@ $< >>/dev/null
+upload_all:
+	@$(ACP) $(EXE) $(APOLLO_V4_HOST)
+cleanafter:
+	@rm -f $(C_OBJECTDIR)/*.o
+exit:
+	@echo "done"
+""")
+
+
+def makefile_v10_relative(ndk_line="C_INCL_NDK  = $(PREFIX)/$(TARGET)/ndk32-include/Include_H\n"):
+    """v1.0 relative PREFIX shape. Never executed by these tests."""
+    return lines_of(f"""
+# ApolloCrossDev Makefile Template v1.0
+PWD = $(shell pwd)
+PREFIX = $(PWD)/../../Compilers/GCC-6.50-Stable
+TARGET = m68k-amigaos
+PROJECT_NAME = probe
+PROJECT_DIR = $(PWD)
+C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc
+{ndk_line}
+C_INCL_ALL = -I. -I$(C_INCL_NDK)
+C_FLAGS = $(C_INCL_ALL)
+compile: init cleanbefore build cleanafter exit
+init:
+	@echo start
+cleanbefore:
+	@rm -f *.o
+build:
+	@echo link
+cleanafter:
+	@echo clean
+exit:
+	@echo done
+""")
+
+
+def make_acd_tree(acd, variants_with_ndk):
+    """Create Compilers/<variant>/m68k-amigaos trees. values are ndk dir names to create."""
+    os.makedirs(os.path.join(acd, "Compilers"), exist_ok=True)
+    os.makedirs(os.path.join(acd, "Projects", "_makefiles"), exist_ok=True)
+    with open(os.path.join(acd, "Projects", "_makefiles", "Makefile"), "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(V12_COMPILE)
+    for variant, ndk_names in variants_with_ndk.items():
+        base = os.path.join(acd, "Compilers", variant, "m68k-amigaos")
+        os.makedirs(base, exist_ok=True)
+        for name in ndk_names:
+            if name == "ndk32-include/Include_H":
+                os.makedirs(os.path.join(base, "ndk32-include", "Include_H"), exist_ok=True)
+            else:
+                os.makedirs(os.path.join(base, name), exist_ok=True)
+
+
+def run_find_acd(shell, script_path, project, acd, home):
+    env = os.environ.copy()
+    env["HOME"] = home
+    env["APOLLOCROSSDEV"] = acd
+    return subprocess.run(
+        [shell, script_path, "--offline", project],
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+
+
+def ndk_problem_lines(output):
+    return [line for line in output.splitlines() if line.startswith("PROBLEM=") and "NDK" in line]
+
+
+def ndk_note_lines(output):
+    return [
+        line for line in output.splitlines()
+        if line.startswith("NOTE=")
+        and (
+            "NDK" in line
+            or "ndk-include" in line
+            or "compiler PREFIX" in line
+            or "compiler install" in line
+            or "feed compilation flags" in line
+        )
+    ]
+
+
+def check_ndk_diagnostics():
+    """Documented NDK presence under the selected compiler. Never runs make."""
+    before = len(errors)
+    shell = shell_path()
+    if not shell:
+        print("RESULT find-acd-ndk NOT VERIFIED")
+        print("REASON=sh is not on PATH, so find-acd.sh was not executed")
+        return
+    script_path, temporary = posix_script(
+        os.path.join(ROOT, "skills", "apollo-build", "scripts", "find-acd.sh")
+    )
+    home = tempfile.mkdtemp(prefix="akb-ndk-home-")
+    try:
+        # 1. Both documented NDK directories present; active requirement is 3.2.
+        acd = tempfile.mkdtemp(prefix="akb-ndk-both-")
+        project = tempfile.mkdtemp(prefix="akb-ndk-proj-both-")
+        try:
+            make_acd_tree(acd, {
+                "GCC-6.50-Dev": ["ndk39-include", "ndk32-include/Include_H"],
+            })
+            write_makefile(
+                project,
+                makefile_with_ndk(
+                    "GCC-6.50-Dev",
+                    "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk32-include/Include_H\n",
+                ),
+            )
+            result = run_find_acd(shell, script_path, project, acd, home)
+            info = parse_kv(result.stdout)
+            if info.get("NDK") != "3.2" or info.get("NDK_STATUS") != "present":
+                fail(f"both-present: expected NDK 3.2 present:\n{result.stdout}")
+            if ndk_problem_lines(result.stdout) or any(
+                "absent" in line for line in ndk_note_lines(result.stdout)
+            ):
+                fail(f"both-present: unexpected missing-NDK diagnostics:\n{result.stdout}")
+            if "ndk-include" in result.stdout and "substitute" in result.stdout:
+                fail(f"both-present: suggested a substitute:\n{result.stdout}")
+            expected_path = os.path.join(
+                acd, "Compilers", "GCC-6.50-Dev", "m68k-amigaos", "ndk32-include", "Include_H"
+            )
+            if info.get("NDK_PATH") != expected_path:
+                fail(f"both-present: wrong NDK_PATH {info.get('NDK_PATH')!r}, expected {expected_path!r}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+
+        # 2. NDK 3.9 absent and is the active requirement.
+        acd = tempfile.mkdtemp(prefix="akb-ndk-39miss-")
+        project = tempfile.mkdtemp(prefix="akb-ndk-proj-39-")
+        try:
+            make_acd_tree(acd, {"GCC-6.50-Dev": ["ndk32-include/Include_H"]})
+            write_makefile(
+                project,
+                makefile_with_ndk(
+                    "GCC-6.50-Dev",
+                    "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk39-include\n",
+                ),
+            )
+            result = run_find_acd(shell, script_path, project, acd, home)
+            info = parse_kv(result.stdout)
+            problems = ndk_problem_lines(result.stdout)
+            path39 = os.path.join(acd, "Compilers", "GCC-6.50-Dev", "m68k-amigaos", "ndk39-include")
+            if info.get("NDK") != "3.9" or info.get("NDK_STATUS") != "absent" or not problems:
+                fail(f"ndk39-required-absent: expected PROBLEM:\n{result.stdout}")
+            elif path39 not in problems[0]:
+                fail(f"ndk39-required-absent: PROBLEM must name {path39}:\n{result.stdout}")
+            if result.returncode == 0:
+                fail("ndk39-required-absent: exit status must be non-zero")
+            if "ndk32-include" in problems[0]:
+                fail(f"ndk39-required-absent: PROBLEM blamed NDK 3.2:\n{result.stdout}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+
+        # 3. NDK 3.2 absent and is the active requirement.
+        acd = tempfile.mkdtemp(prefix="akb-ndk-32miss-")
+        project = tempfile.mkdtemp(prefix="akb-ndk-proj-32-")
+        try:
+            make_acd_tree(acd, {"GCC-6.50-Dev": ["ndk39-include"]})
+            write_makefile(
+                project,
+                makefile_with_ndk(
+                    "GCC-6.50-Dev",
+                    "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk32-include/Include_H\n",
+                ),
+            )
+            result = run_find_acd(shell, script_path, project, acd, home)
+            info = parse_kv(result.stdout)
+            problems = ndk_problem_lines(result.stdout)
+            path32 = os.path.join(
+                acd, "Compilers", "GCC-6.50-Dev", "m68k-amigaos", "ndk32-include", "Include_H"
+            )
+            if info.get("NDK") != "3.2" or info.get("NDK_STATUS") != "absent" or not problems:
+                fail(f"ndk32-required-absent: expected PROBLEM:\n{result.stdout}")
+            elif path32 not in problems[0]:
+                fail(f"ndk32-required-absent: PROBLEM must name {path32}:\n{result.stdout}")
+            if result.returncode == 0:
+                fail("ndk32-required-absent: exit status must be non-zero")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+
+        # 4. Both documented dirs absent, but ndk-include exists: never a substitute.
+        acd = tempfile.mkdtemp(prefix="akb-ndk-fallback-")
+        project = tempfile.mkdtemp(prefix="akb-ndk-proj-fb-")
+        try:
+            make_acd_tree(acd, {"GCC-6.50-Dev": ["ndk-include"]})
+            write_makefile(
+                project,
+                makefile_with_ndk(
+                    "GCC-6.50-Dev",
+                    "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk32-include/Include_H\n",
+                ),
+            )
+            result = run_find_acd(shell, script_path, project, acd, home)
+            problems = ndk_problem_lines(result.stdout)
+            if not problems:
+                fail(f"ndk-include-only: expected PROBLEM for documented NDK:\n{result.stdout}")
+            joined = "\n".join(problems)
+            if "ndk32-include/Include_H" not in joined:
+                fail(f"ndk-include-only: must name ndk32-include/Include_H:\n{result.stdout}")
+            if "not a documented substitute" not in joined and "Do not substitute" not in joined:
+                fail(f"ndk-include-only: must reject ndk-include as substitute:\n{result.stdout}")
+            if any("use ndk-include" in line.lower() for line in result.stdout.splitlines()):
+                fail(f"ndk-include-only: suggested using ndk-include:\n{result.stdout}")
+            if parse_kv(result.stdout).get("NDK_STATUS") != "absent":
+                fail(f"ndk-include-only: NDK_STATUS should be absent:\n{result.stdout}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+
+        # 5. Required NDK under Dev, absent under selected Stable (v1.2 + APOLLOCROSSDEV).
+        acd = tempfile.mkdtemp(prefix="akb-ndk-stable-")
+        project = tempfile.mkdtemp(prefix="akb-ndk-proj-stable-")
+        try:
+            make_acd_tree(acd, {
+                "GCC-6.50-Dev": ["ndk32-include/Include_H", "ndk39-include"],
+                "GCC-6.50-Stable": ["ndk-include"],
+            })
+            write_makefile(
+                project,
+                makefile_with_ndk(
+                    "GCC-6.50-Stable",
+                    "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk32-include/Include_H\n",
+                ),
+            )
+            result = run_find_acd(shell, script_path, project, acd, home)
+            info = parse_kv(result.stdout)
+            problems = ndk_problem_lines(result.stdout)
+            stable_root = os.path.join(acd, "Compilers", "GCC-6.50-Stable")
+            path32 = os.path.join(stable_root, "m68k-amigaos", "ndk32-include", "Include_H")
+            if info.get("NDK_COMPILER") != stable_root:
+                fail(f"stable-selected: NDK_COMPILER must be Stable:\n{result.stdout}")
+            if "GCC-6.50-Dev" in (info.get("NDK_COMPILER") or ""):
+                fail(f"stable-selected: claimed Dev for NDK check:\n{result.stdout}")
+            if not problems or path32 not in problems[0]:
+                fail(f"stable-selected: expected PROBLEM for Stable path:\n{result.stdout}")
+            if result.returncode == 0:
+                fail("stable-selected: exit status must be non-zero")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+
+        # 6. Compiler selection cannot be determined.
+        acd = tempfile.mkdtemp(prefix="akb-ndk-unkcomp-")
+        project = tempfile.mkdtemp(prefix="akb-ndk-proj-unk-")
+        try:
+            make_acd_tree(acd, {"GCC-6.50-Dev": []})
+            write_makefile(
+                project,
+                makefile_with_ndk(
+                    "GCC-6.50-Dev",
+                    "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk32-include/Include_H\n",
+                ).replace(
+                    "PREFIX = $(ACD_ROOT)/Compilers/GCC-6.50-Dev",
+                    "PREFIX = $(ACD_ROOT)/Compilers/$(COMPILER_VARIANT)",
+                ),
+            )
+            result = run_find_acd(shell, script_path, project, acd, home)
+            notes = ndk_note_lines(result.stdout)
+            if not any("could not establish the effective compiler PREFIX" in line for line in notes):
+                fail(f"unknown-compiler: expected uncertainty NOTE:\n{result.stdout}")
+            if ndk_problem_lines(result.stdout):
+                fail(f"unknown-compiler: must not invent an NDK PROBLEM:\n{result.stdout}")
+            if "NDK_STATUS" in parse_kv(result.stdout):
+                fail(f"unknown-compiler: must not claim NDK_STATUS:\n{result.stdout}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+
+        # 7. NDK 3.2 absent but active configuration requires only NDK 3.9.
+        acd = tempfile.mkdtemp(prefix="akb-ndk-only39-")
+        project = tempfile.mkdtemp(prefix="akb-ndk-proj-only39-")
+        try:
+            make_acd_tree(acd, {"GCC-6.50-Dev": ["ndk39-include"]})
+            write_makefile(
+                project,
+                makefile_with_ndk(
+                    "GCC-6.50-Dev",
+                    "# C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk32-include/Include_H\n"
+                    "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk39-include\n",
+                ),
+            )
+            result = run_find_acd(shell, script_path, project, acd, home)
+            info = parse_kv(result.stdout)
+            if info.get("NDK") != "3.9" or info.get("NDK_STATUS") != "present":
+                fail(f"only-39-required: expected NDK 3.9 present:\n{result.stdout}")
+            if ndk_problem_lines(result.stdout):
+                fail(f"only-39-required: missing unused NDK 3.2 must not be PROBLEM:\n{result.stdout}")
+            if any("NDK 3.2" in line and "absent" in line for line in ndk_note_lines(result.stdout)):
+                fail(f"only-39-required: must not NOTE absent unused NDK 3.2:\n{result.stdout}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+
+        # 8. Existing build-command classification remains unchanged.
+        acd = tempfile.mkdtemp(prefix="akb-ndk-build-")
+        safe_project = tempfile.mkdtemp(prefix="akb-ndk-safe-")
+        unsafe_project = tempfile.mkdtemp(prefix="akb-ndk-unsafe-")
+        try:
+            make_acd_tree(acd, {
+                "GCC-6.50-Dev": ["ndk39-include", "ndk32-include/Include_H"],
+            })
+            write_makefile(safe_project, V12_COMPILE + "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk32-include/Include_H\n")
+            write_makefile(
+                unsafe_project,
+                "# ApolloCrossDev Makefile Template v1.2\n"
+                "PREFIX = $(ACD_ROOT)/Compilers/GCC-6.50-Dev\n"
+                "C_INCL_NDK = $(PREFIX)/m68k-amigaos/ndk32-include/Include_H\n"
+                "compile:\n"
+                "\tacp probe host\n",
+            )
+            safe_run = run_find_acd(shell, script_path, safe_project, acd, home)
+            unsafe_run = run_find_acd(shell, script_path, unsafe_project, acd, home)
+            if "make" in safe_run.args:
+                fail("ndk-build-classify: find-acd.sh was invoked with make")
+            if parse_kv(safe_run.stdout).get("BUILD") != "make compile":
+                fail(f"ndk-build-classify: safe BUILD lost:\n{safe_run.stdout}")
+            if "BUILD" in parse_kv(unsafe_run.stdout):
+                fail(f"ndk-build-classify: unsafe Makefile gained BUILD=:\n{unsafe_run.stdout}")
+            if "no Make command can be recommended automatically" not in unsafe_run.stdout:
+                fail(f"ndk-build-classify: unsafe refusal missing:\n{unsafe_run.stdout}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(safe_project, ignore_errors=True)
+            shutil.rmtree(unsafe_project, ignore_errors=True)
+
+        # 9. v1.0 project under ApolloCrossDev/Projects/: relative PREFIX -> Stable.
+        acd = tempfile.mkdtemp(prefix="akb-ndk-v10in-")
+        try:
+            make_acd_tree(acd, {
+                "GCC-6.50-Dev": ["ndk32-include/Include_H"],
+                "GCC-6.50-Stable": [],
+            })
+            project = os.path.join(acd, "Projects", "probev10")
+            os.makedirs(project)
+            write_makefile(project, makefile_v10_relative())
+            result = run_find_acd(shell, script_path, project, acd, home)
+            info = parse_kv(result.stdout)
+            stable_root = os.path.join(acd, "Compilers", "GCC-6.50-Stable")
+            path32 = os.path.join(stable_root, "m68k-amigaos", "ndk32-include", "Include_H")
+            if info.get("NDK_COMPILER") != stable_root:
+                fail(f"v10-in-tree: NDK_COMPILER must be Stable under ACD:\n{result.stdout}")
+            if info.get("NDK") != "3.2" or info.get("NDK_STATUS") != "absent":
+                fail(f"v10-in-tree: expected absent NDK 3.2 under Stable:\n{result.stdout}")
+            problems = ndk_problem_lines(result.stdout)
+            if not problems or path32 not in problems[0]:
+                fail(f"v10-in-tree: PROBLEM must name Stable ndk32 path:\n{result.stdout}")
+            if result.returncode == 0:
+                fail("v10-in-tree: exit status must be non-zero")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+
+        # 10. v1.0 project outside ApolloCrossDev: do not invent ACD_ROOT/Compilers/Stable.
+        acd = tempfile.mkdtemp(prefix="akb-ndk-v10out-")
+        project = tempfile.mkdtemp(prefix="akb-ndk-proj-v10out-")
+        try:
+            make_acd_tree(acd, {"GCC-6.50-Stable": []})
+            write_makefile(project, makefile_v10_relative())
+            result = run_find_acd(shell, script_path, project, acd, home)
+            notes = ndk_note_lines(result.stdout)
+            if not any("could not establish the effective compiler PREFIX" in line for line in notes):
+                fail(f"v10-out-of-tree: expected PREFIX uncertainty NOTE:\n{result.stdout}")
+            if ndk_problem_lines(result.stdout):
+                fail(f"v10-out-of-tree: must not PROBLEM using ACD_ROOT from the Stable label:\n{result.stdout}")
+            if "NDK_COMPILER" in parse_kv(result.stdout):
+                fail(f"v10-out-of-tree: must not claim NDK_COMPILER:\n{result.stdout}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+
+        # 11. v1.2 with APOLLOCROSSDEV: ACD_ROOT-based PREFIX resolves.
+        acd = tempfile.mkdtemp(prefix="akb-ndk-v12env-")
+        project = tempfile.mkdtemp(prefix="akb-ndk-proj-v12env-")
+        try:
+            make_acd_tree(acd, {"GCC-6.50-Dev": []})
+            write_makefile(
+                project,
+                makefile_with_ndk(
+                    "GCC-6.50-Dev",
+                    "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk32-include/Include_H\n",
+                ),
+            )
+            result = run_find_acd(shell, script_path, project, acd, home)
+            info = parse_kv(result.stdout)
+            dev_root = os.path.join(acd, "Compilers", "GCC-6.50-Dev")
+            if info.get("NDK_COMPILER") != dev_root:
+                fail(f"v12-apollocrossdev: NDK_COMPILER must resolve via APOLLOCROSSDEV:\n{result.stdout}")
+            if info.get("NDK") != "3.2" or info.get("NDK_STATUS") != "absent":
+                fail(f"v12-apollocrossdev: expected established absent NDK 3.2:\n{result.stdout}")
+            if not ndk_problem_lines(result.stdout):
+                fail(f"v12-apollocrossdev: expected PROBLEM:\n{result.stdout}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+
+        # 12. C_INCL_NDK present but not wired into C_FLAGS: informational only.
+        acd = tempfile.mkdtemp(prefix="akb-ndk-unwired-")
+        project = tempfile.mkdtemp(prefix="akb-ndk-proj-unwired-")
+        try:
+            make_acd_tree(acd, {"GCC-6.50-Dev": []})
+            text = makefile_with_ndk(
+                "GCC-6.50-Dev",
+                "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk32-include/Include_H\n",
+            )
+            text = text.replace(
+                "C_INCL_ALL = -I. -I$(C_INCL_NDK)\nC_FLAGS = $(C_INCL_ALL)\n",
+                "C_INCL_ALL = -I.\nC_FLAGS = -O2\n",
+            )
+            write_makefile(project, text)
+            result = run_find_acd(shell, script_path, project, acd, home)
+            if ndk_problem_lines(result.stdout):
+                fail(f"unwired-ndk: must not PROBLEM when C_INCL_NDK is unused:\n{result.stdout}")
+            if not any("not shown to feed compilation flags" in line for line in ndk_note_lines(result.stdout)):
+                fail(f"unwired-ndk: expected wiring uncertainty NOTE:\n{result.stdout}")
+            if parse_kv(result.stdout).get("NDK_STATUS") == "absent":
+                fail(f"unwired-ndk: must not claim established NDK_STATUS=absent:\n{result.stdout}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+    finally:
+        if temporary:
+            os.remove(script_path)
+        shutil.rmtree(home, ignore_errors=True)
+    if len(errors) == before:
+        print("WORKFLOW NDK availability diagnostics: PASS")
+
+
 def check_toolchain():
     shell = shell_path()
     if not shell:
@@ -1071,6 +1547,7 @@ def main():
     check_find_acd_absent()
     check_lesson_gate()
     check_build_commands()
+    check_ndk_diagnostics()
     check_toolchain()
     print(f"{len(errors)} structural problems")
     return 1 if errors else 0
