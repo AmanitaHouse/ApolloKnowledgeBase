@@ -52,7 +52,16 @@ change the remote afterwards unless they ask.
 
 ## 0. Guided or basic setup
 
-The project is the folder this session was started in: don't ask where.
+Establish the intended project directory before writing files. The usual
+case is the folder this Cursor session was started in. When the developer
+wants a **new directory outside that folder**, create that directory first
+(for example `mkdir` on an absolute path the developer names), then either
+open a Cursor session there or pass that absolute path as `--project`.
+`scripts/write-project-files.sh` / `tools/write_project_files.py` require
+`--project` to already exist; they do not create the directory and they
+do not invent a `--mode` flag. The supported execution-mode argument is
+`--execution-mode`.
+
 First ask which setup the developer wants:
 
 - **Guided setup:** the full procedure, steps 1 to 8: a few questions, AKB,
@@ -66,16 +75,17 @@ For a basic setup, skip step 1. Run `scripts/write-project-files.sh` with
 the host launch, `--project` set to the project directory, and
 `--setup basic`. When that directory's name does not match the rule in
 step 1, also pass `--name` with a name that does. Do not rename or move
-the directory. It fills `AGENTS.md`
-with the folder name, the defaults from the table in step 1, and
-`not set yet` for what it is, kind, execution mode and languages. Then
+the directory. Do not pass `--target-os` or `--target-core`: basic setup
+rejects those flags with `PROBLEM=` and writes nothing. It fills
+`AGENTS.md` with the folder name, the defaults from the table in step 1,
+and `not set yet` for what it is, kind, execution mode and languages. Then
 go to step 8: show the files, offer a first commit, and mention that the
 guided setup can still check ApolloCrossDev and add a Makefile and a
 starting program later.
 
 ## 1. Ask what the project is (guided setup)
 
-Ask these four in one go, and suggest the defaults in brackets:
+Ask these in one go, and suggest the defaults in brackets:
 
 1. **Project name** [the current folder's name]: becomes `PROJECT_NAME` and
    the program's name. Letters, digits, `-` or `_`, no spaces. The first
@@ -86,7 +96,8 @@ Ask these four in one go, and suggest the defaults in brackets:
    application, library, device or datatype.
 3. **Execution mode**: `os-takeover` (games and demos: multitasking off,
    direct 68080 and SAGA access, OS restored on exit) or `os-friendly`
-   (applications and tools: OS calls). Explain the difference if asked; it
+   (applications and tools: OS calls). Pass that answer as
+   `--execution-mode` (not `--mode`). Explain the difference if asked; it
    is in `KB AGENTS.md` section 1 and `KB os/os-takeover.md`.
 4. **Which language(s)**: C, C++ and/or assembler [C]. Pass that answer as
    `--languages`. The script accepts those three words in any case, with
@@ -103,19 +114,36 @@ Ask these four in one go, and suggest the defaults in brackets:
    C++ and `os-takeover`, the script prints `PROBLEM=` and writes nothing.
    Stop and show that line. Do not invent a C++ takeover starter. C
    `os-takeover` is unchanged.
+5. **Target OS** [ApolloOS R10, AmigaOS 3.9 and AmigaOS 3.2]: one or more of
+   `ApolloOS R10`, `AmigaOS 3.9`, `AmigaOS 3.2`. Pass the answer as
+   `--target-os`. When the developer already named a specific OS in the
+   request, pass that value; do not expand it to all three. Omit the flag
+   only when they accept the default. Invalid or ambiguous values print
+   `PROBLEM=` and write no project file.
+6. **Target core** [the latest core release]: `the latest core release`,
+   `any`, a single `Core N`, `Core N+`, or an inclusive `Core N–M` range
+   (ASCII hyphen or en/em dash). Pass the answer as `--target-core`. When
+   the developer already named a core or range, pass that value; do not
+   replace it with the latest core. Omit the flag only when they accept
+   the default. Invalid or ambiguous values print `PROBLEM=` and write no
+   project file.
 
 Don't ask about the rest; every new project gets these, and the developer
 can change them later in `AGENTS.md`:
 
 | Setting | Value |
 |---|---|
-| Target OS | ApolloOS R10, AmigaOS 3.9 and AmigaOS 3.2 |
-| Target core | the latest core release. When code uses something that a knowledge base file limits to a minimum core (its `applies_to.core`), tell the developer. |
+| Target OS | ApolloOS R10, AmigaOS 3.9 and AmigaOS 3.2 (default when `--target-os` is omitted) |
+| Target core | the latest core release (default when `--target-core` is omitted). When code uses something that a knowledge base file limits to a minimum core (its `applies_to.core`), tell the developer. |
 | V4 model | any V4 model |
 | ApolloLib | yes, for SAGA sound, pictures, PIP, pointer and input (`KB core/best-practices/prefer-library-calls-for-saga-chips.md`) |
 
 Those defaults are the project's intended targets. They are not a list of
 hardware configurations verified by every cited knowledge-base article.
+Explicit `--target-os` / `--target-core` values become the intended
+targets recorded in `AGENTS.md` and `.cursor/rules/apollo-v4.mdc`. Do not
+rewrite reviewed source-code applicability comments in starters to match
+user-selected targets.
 
 The os-friendly starters use the AttnFlags technique from
 `KB os/best-practices/detect-68080-and-fpu-at-run-time.md`. That article's
@@ -129,7 +157,8 @@ Technique sample.
 
 ## 2. Create the repository with AKB
 
-In the current folder, and only there:
+In the established project directory from section 0 (the session folder, or
+the absolute path the developer chose):
 
 ```sh
 git init
@@ -208,8 +237,27 @@ Do not assume the documented build command is `make compile`.
 
 Run `scripts/write-project-files.sh` with the host launch. This is the
 guided invocation that creates `AGENTS.md` when that file does not exist
-yet. Pass `--project`, `--setup guided`, the answers from step 1, and
-`--makefile-template` set to `<ACD_ROOT>/Projects/_makefiles/Makefile`.
+yet. Pass `--project` (existing directory from section 0), `--setup guided`,
+the answers from step 1, and `--makefile-template` set to
+`<ACD_ROOT>/Projects/_makefiles/Makefile`. Required guided flags are
+`--what`, `--kind`, and `--execution-mode` (never `--mode`). Pass
+`--languages`, and pass `--target-os` / `--target-core` whenever the
+developer chose non-default targets. Example (Experiment 1 shape):
+
+```sh
+sh skills/apollo-new-project/scripts/write-project-files.sh \
+  --project /absolute/path/to/project \
+  --setup guided \
+  --name apollo-v4-capability-probe \
+  --what "Capability probe for Apollo V4 guided setup" \
+  --kind tool \
+  --execution-mode os-friendly \
+  --languages C \
+  --target-os "AmigaOS 3.9" \
+  --target-core "Core 12798–12841" \
+  --makefile-template "<ACD_ROOT>/Projects/_makefiles/Makefile"
+```
+
 The script classifies that template with `KB tools/classify_build.py` and
 checks compiler-path readiness with `KB tools/resolve_compiler.py` before
 it writes `AGENTS.md`. Upload safety and build readiness stay separate.
@@ -237,13 +285,17 @@ it changes only:
 | Line | Set to |
 |---|---|
 | `PROJECT_NAME` | the name |
-| `C_INCL_NDK` | the `ndk39-include` line: AmigaOS 3.9 is a target, so a function that 3.9 lacks gives a compile error instead of a crash on 3.9 (`KB toolchain/target-os-headers.md`) |
+| `C_INCL_NDK` | the NDK that matches the selected Target OS (`KB toolchain/target-os-headers.md`): `ndk39-include` when AmigaOS 3.9 is among the targets (including the three-OS default); `ndk32-include/Include_H` when the targets are only AmigaOS 3.2 and/or ApolloOS R10 |
 
 It leaves `C_COMPILER`, `O_LINKER`, `APOLLOLIB`, `C_OPTIONS` and `S_FLAGS`
 as they are. `.c` files stay on the template GCC line. ApolloLib's C
 compile rule stays on that line. `.s` files stay on the assembler rule.
-If the template has no `ndk39-include` line, it says so and does not
-invent one.
+If the template has no identifiable `C_INCL_NDK` line, or has only a
+different NDK than the Target OS requires, it says so, leaves the
+Makefile NDK lines unchanged, and does not claim build readiness or
+document a Make command from upload-safety alone. Do not invent include
+paths or substitute unrelated NDK directories. Do not assume one OS's NDK
+is interchangeable with another.
 
 For an os-friendly C++ request it also adds the minimum `.cpp` rules the
 template shape allows, without new compiler or linker flags:
