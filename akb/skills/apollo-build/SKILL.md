@@ -47,16 +47,22 @@ Pass that same project folder to `scripts/find-acd.sh`. Honour
 ## 1. Know the target
 
 Read the project's `AGENTS.md`: target OS, execution mode, languages. If it
-is missing, ask; don't guess the target OS, it decides the headers. If the
-language support section says guided setup generated a C-style `main.c`
-starter rather than a dedicated C++ or assembler program, that request was
-not implemented. Building `main.c` does not verify C++ or assembler. When
-`C_COMPILER` is `m68k-amigaos-g++`, `g++` may treat `main.c` as C++ source
-because the ApolloCrossDev template does not pass `-x`; that still does not
-verify C++. Do not describe the result as a verified program in a language
-the section says was not generated. `.cpp` files are not part of the build
-until the Makefile collects them as `KB toolchain/project-makefile.md`
-describes. A non-uploading `BUILD=` line does not change that.
+is missing, ask; don't guess the target OS, it decides the headers. Read
+the language support section before treating a starter as the requested
+language. Assembler guidance that names `main.c` as the C starter means no
+assembler program was generated. Building that file does not verify
+assembler. Os-friendly C++ guidance names `main.cpp` when that starter was
+written. The generated Makefile then compiles project `.cpp` files with
+`m68k-amigaos-g++` through `CXX_COMPILER` and leaves `.c` files on
+`C_COMPILER`. That is not a verified C++ compilation or link. Standard
+C++ library and runtime-dependent features are not established. When the
+section says C++ setup is incomplete, `.cpp` discovery was not added, or
+`main.cpp` was not written, do not describe the project as a configured
+C++ build and do not invent a G++ path or switch `C_COMPILER` to `g++`
+to fill the gap. C++ os-takeover remains unsupported. The stock
+ApolloCrossDev template still collects `.c` and `.s` only until those
+generated rules are present (`KB toolchain/project-makefile.md`). A
+non-uploading `BUILD=` line is upload safety only.
 
 ## 2. Check the toolchain
 

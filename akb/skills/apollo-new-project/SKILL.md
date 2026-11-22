@@ -1,6 +1,6 @@
 ---
 name: apollo-new-project
-description: Set up a new Apollo V4 software project (game, demo, tool, application, library, device, datatype) as its own git repository in which every AI agent uses ApolloKnowledgeBase as its central source of Apollo V4 knowledge, then check, install or update ApolloCrossDev, and create the Makefile and a starting program for os-friendly or os-takeover mode that builds without warnings (guided setup), or only the AKB setup for the agent (basic setup). Use when the user wants to start, create, scaffold or set up a new program or project for the Apollo V4, Vampire V4, 68080 or SAGA, pastes the "Start Apollo V4 Project" prompt from apolloknowledgebase.com, or wants an existing folder of Apollo code prepared for AI-assisted work.
+description: Set up a new Apollo V4 software project (game, demo, tool, application, library, device, datatype) as its own git repository in which every AI agent uses ApolloKnowledgeBase as its central source of Apollo V4 knowledge, then check, install or update ApolloCrossDev, and create the Makefile and a starting program for os-friendly or os-takeover mode (guided setup), or only the AKB setup for the agent (basic setup). A C build is checked for warnings. Experimental os-friendly C++ files are generated and are not build-verified. Use when the user wants to start, create, scaffold or set up a new program or project for the Apollo V4, Vampire V4, 68080 or SAGA, pastes the "Start Apollo V4 Project" prompt from apolloknowledgebase.com, or wants an existing folder of Apollo code prepared for AI-assisted work.
 ---
 
 # apollo-new-project
@@ -98,6 +98,11 @@ Ask these four in one go, and suggest the defaults in brackets:
    An empty value or any other name prints `PROBLEM=` and writes no project
    file. Stop, show that line, and ask for one of the three words. Do not
    write the files by hand and do not substitute C.
+
+   C++ scaffolding is experimental and os-friendly only. If the request is
+   C++ and `os-takeover`, the script prints `PROBLEM=` and writes nothing.
+   Stop and show that line. Do not invent a C++ takeover starter. C
+   `os-takeover` is unchanged.
 
 Don't ask about the rest; every new project gets these, and the developer
 can change them later in `AGENTS.md`:
@@ -203,56 +208,68 @@ If `AGENTS.md` already exists, the script leaves it unchanged. If it prints
 `NOTE=` because the file's build command does not match the template, show
 that note and wait. Do not rewrite the file.
 
-The same run writes the Makefile. It changes only:
+The same run writes the Makefile. For C, assembler, and C `os-takeover`
+it changes only:
 
 | Line | Set to |
 |---|---|
 | `PROJECT_NAME` | the name |
 | `C_INCL_NDK` | the `ndk39-include` line: AmigaOS 3.9 is a target, so a function that 3.9 lacks gives a compile error instead of a crash on 3.9 (`KB toolchain/target-os-headers.md`) |
-| `C_COMPILER` | when the request includes C++, the commented `m68k-amigaos-g++` line, if that pair is in the template. If the line is absent, `C_COMPILER` stays as it is and the script says so separately. The installed v1.0 template and the documented v1.2 template collect `.c` and `.s` only. Add `.cpp` files as `KB toolchain/project-makefile.md` says before anyone claims a C++ build. Switching the compiler does not verify C++ |
 
-It leaves `APOLLOLIB`, `C_OPTIONS` and `S_FLAGS` as they are. If the
-template has no `ndk39-include` line, it says so and does not invent one.
+It leaves `C_COMPILER`, `O_LINKER`, `APOLLOLIB`, `C_OPTIONS` and `S_FLAGS`
+as they are. `.c` files stay on the template GCC line. ApolloLib's C
+compile rule stays on that line. `.s` files stay on the assembler rule.
+If the template has no `ndk39-include` line, it says so and does not
+invent one.
+
+For an os-friendly C++ request it also adds the minimum `.cpp` rules the
+template shape allows, without new compiler or linker flags:
+
+- `CPP_FILES` discovers project `*.cpp` files when the template does not already.
+- The project object list that already turns `*.c` into objects gains the matching `*.cpp` objects.
+- A copy of the project `.c` compile rule compiles `*.cpp` with `m68k-amigaos-g++`, through `CXX_COMPILER`. That path comes from the template's commented `m68k-amigaos-g++` line, or from an already-active `CXX_COMPILER` that names `m68k-amigaos-g++`. The script does not invent a G++ path from a GCC assignment. When the template has no identifiable G++ assignment, it prints `PROBLEM=` and writes nothing.
+- `C_COMPILER` is not switched to `g++`. A same basename in `.c` and `.cpp` would produce one `.o` name. The script reports `NOTE=CONFLICT` and does not write `main.cpp` when `main.c` is already there.
+
+If that Makefile cannot be classified as non-uploading, `AGENTS.md` names
+no Make command. An existing Makefile is left unchanged, and the notes say
+`.cpp` discovery was not added. Generating files does not show that
+`ndk39-include` or `ndk32-include/Include_H` is installed.
 
 ## 6. The starting program (guided setup)
 
-The script copies one file from `assets/` to `main.c` and replaces
-`@PROJECT@`, `@WHAT@` and `@TARGETS@`:
+The script copies one starter and replaces `@PROJECT@`, `@WHAT@` and
+`@TARGETS@`. It never writes a second `main`.
 
-| Mode | File |
+| Request | File |
 |---|---|
-| os-friendly | `assets/main-os-friendly.c` |
-| os-takeover | `assets/main-os-takeover.c` |
+| os-friendly C, assembler, or C plus assembler | `assets/main-os-friendly.c` as `main.c` |
+| os-takeover C, with or without assembler | `assets/main-os-takeover.c` as `main.c` |
+| os-friendly C++, with or without C or assembler | `assets/main-os-friendly.cpp` as `main.cpp` |
+| os-takeover C++ | no files; `PROBLEM=` |
 
 The takeover programs leave the display takeover open on purpose: the KB
 doesn't document it yet (`KB os/os-takeover.md`). Tell the user, and don't
-fill it in from general Amiga knowledge.
+fill it in from general Amiga knowledge. There is no C++ takeover starter.
 
-That C-style `main.c` is the only starter, including when the request is
-C++ only, assembler only, or a combination. Do not write a `.cpp` file, a
-`.s` file, or a 68080 assembler entry point, and do not change `S_FLAGS`.
-It is not a dedicated C++ starter and not an assembler program. The
-ApolloCrossDev template compiles sources with `$(C_COMPILER) -c $(C_FLAGS)`
-and does not pass `-x`, so when `C_COMPILER` is `m68k-amigaos-g++`, `g++`
-may treat `main.c` as C++ source. That still does not verify C++ project
-generation or compilation, and the template still does not collect `.cpp`
-files unless its file lists are changed as
-`KB toolchain/project-makefile.md` describes.
+Do not write a `.s` file or a 68080 assembler entry point, and do not
+change `S_FLAGS`. Assembler-only still gets the C `main.c` and says so.
+That file is not an assembler program.
 
 When C++ or assembler was requested, the script prints `NOTE=LANGUAGE`
 lines and, in a new `AGENTS.md`, a "Guided setup language support" section.
-Repeat both to the developer. The Languages line records the request. It is
-not evidence that the language was implemented. The installed ApolloCrossDev
-v1.0 template and the documented v1.2 template collect project `.c` and `.s`
-files and do not collect `.cpp` files. Trust the notes for the template that
-was supplied: they say whether `.cpp` sources are collected, whether `.s`
-files are discovered, and whether `m68k-amigaos-g++` was selected. A missing
-compiler-selection line is a separate note. C alone prints none of these
-notes.
+Repeat both to the developer. For a supported os-friendly C++ request,
+those notes distinguish a written `main.cpp`, `.cpp` discovery, a
+non-uploading Make command when one was classified, and the fact that
+C++ compilation, linkage, and hardware execution are not verified. They
+also say that generation does not show the documented NDK directories
+are installed. Trust the notes when an existing `main.c`, `main.cpp`, or
+Makefile made the C++ setup incomplete. C alone, and C `os-takeover`,
+print none of the C++ notes.
 
-A non-uploading Make classification does not verify C++ project generation,
-C++ compilation, or an assembler program. Do not describe the result as a
-verified C++ or assembler project.
+A non-uploading Make classification does not verify C++ compilation,
+C++ linkage, or an assembler program. Standard C++ library and
+runtime-dependent features are not established. C++ os-takeover remains
+unsupported. Do not describe the result as a build-verified C++ project.
 
 It also copies `assets/gitignore` to `.gitignore`.
 
@@ -265,20 +282,23 @@ script documents after classifying the template. If the Build and test
 section does not name one of them, do not run make. Do not run `make` or
 `make debug` unless the developer asks. The build must end with no errors
 and no warnings before you continue. A successful build of `main.c` is a
-build of that C-style starter. When the language notes say C++ or assembler
-was not generated, do not report the build as a verified C++ or assembler
-program, even if `C_COMPILER` is `m68k-amigaos-g++` and `g++` treats the
-`.c` file as C++.
+build of that C starter. A successful build of `main.cpp` is still not
+something this skill has verified: compilation and linkage of the C++
+starter remain unverified until a separate authorised test. Do not run
+that test unless the developer asks. When the language notes say the C++
+setup is incomplete, or that assembler was not generated, say that.
 
 ## 8. Hand over
 
 - Show the user the files you made and, for a guided setup, the build
   result. Never claim the build succeeded unless you ran it and it printed
   no errors and no warnings. When C++ or assembler was requested, show the
-  `NOTE=LANGUAGE` lines as well. Do not say that language was implemented,
-  generated, or verified. `make compile` or `make cleanbefore build` being
-  classified as non-uploading is a statement about upload safety, not about
-  C++ or assembler support.
+  `NOTE=LANGUAGE` lines as well. For os-friendly C++, say that `main.cpp`
+  and the `.cpp` rules were generated when the notes say so, and that
+  compilation, linkage, and hardware execution are not verified. A
+  non-uploading `make compile` or `make cleanbefore build` is a statement
+  about upload safety. It is not proof that the C++ project compiles, and
+  it does not show that the documented NDK directories are installed.
 - Offer a first commit; commit only when they agree.
 - Tell them how to work from here: open the project folder in Cursor (or
   Claude Code). Cursor reads `AGENTS.md` and `.cursor/rules/apollo-v4.mdc`
