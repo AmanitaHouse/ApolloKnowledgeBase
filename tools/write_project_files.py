@@ -3,6 +3,8 @@
 
 The script creates files that are missing. It never overwrites an existing
 file, never runs git, never changes remotes, and never installs software.
+A guided AGENTS.md names a Make command only after the supplied Makefile
+template has been classified as non-uploading.
 
 The skill runs skills/apollo-new-project/scripts/write-project-files.sh.
 This program is the shared implementation (Python standard library only).
@@ -35,6 +37,7 @@ NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.dirname(__file__))
 
+import classify_build  # noqa: E402
 import resolve_kb  # noqa: E402
 
 PROJECT_RULE = """---
@@ -123,6 +126,55 @@ def fill_agents(template, name, what, kind, mode, languages, areas, build_body, 
     if "<" in text or ">" in text:
         raise ValueError("generated AGENTS.md still contains a placeholder")
     return text
+
+
+SAFE_COMMANDS = ("make compile", "make cleanbefore build")
+NO_TEMPLATE_BUILD = (
+    "# No Makefile template was supplied.\n"
+    "# This file names no build command."
+)
+
+
+def agents_build_body(verdict):
+    if verdict.command in SAFE_COMMANDS:
+        return (
+            verdict.command + "\n"
+            "# This command was classified as non-uploading from the Makefile that will be written.\n"
+            "# Do not run any other make goal unless the developer asks."
+        )
+    reason = " ".join(verdict.reason.replace("<", "").replace(">", "").split())
+    return (
+        "# No Make target was classified as non-uploading.\n"
+        "# " + reason + "\n"
+        "# This file names no build command."
+    )
+
+
+def documented_make_commands(text):
+    commands = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped == "make" or stripped.startswith("make "):
+            commands.append(stripped)
+    return commands
+
+
+def report_agents_mismatch(agents_path, verdict):
+    with open(agents_path, encoding="utf-8") as fh:
+        documented = documented_make_commands(fh.read())
+    expected = [verdict.command] if verdict.command in SAFE_COMMANDS else []
+    if documented == expected:
+        return
+    shown = ", ".join(documented) if documented else "none"
+    classified = verdict.command if verdict.command in SAFE_COMMANDS else "no verified non-uploading command"
+    reason = " ".join(verdict.reason.replace("<", "").replace(">", "").split())
+    print(
+        "NOTE=existing AGENTS.md was left unchanged and its build command does not match "
+        f"the supplied Makefile template: documented {shown}; template classification: {classified}. "
+        f"{reason} Update the Build and test section only after reviewing that classification."
+    )
 
 
 def areas_for(setup, mode):
@@ -246,10 +298,6 @@ def main(argv):
         if args.execution_mode not in MODES:
             return fail("execution mode must be os-friendly or os-takeover")
         what, kind, mode, languages = args.what, args.kind, args.execution_mode, args.languages
-        build_body = (
-            "make compile\n"
-            "# make uploads to the V4 at $AMIGAHOST. Run it only when the developer asks."
-        )
         basic = False
     else:
         what = kind = mode = languages = "not set yet"
@@ -264,6 +312,25 @@ def main(argv):
     slug = slug_from_url(kb_url)
     if slug is None:
         return fail(f"kb-url is not a repository URL: {kb_url}")
+
+    makefile_text = None
+    makefile_notes = []
+    build_verdict = None
+    if args.setup == "guided":
+        if args.makefile_template:
+            if not os.path.isfile(args.makefile_template):
+                return fail(f"Makefile template is missing: {args.makefile_template}")
+            with open(args.makefile_template, encoding="utf-8") as fh:
+                makefile_text = fh.read()
+            makefile_text, makefile_notes = adjust_makefile(makefile_text, name, languages)
+            # Classify the Makefile text that will be written, not the raw
+            # template path alone. AGENTS.md must match that content.
+            build_verdict = classify_build.classify_text(
+                makefile_text, args.makefile_template,
+            )
+            build_body = agents_build_body(build_verdict)
+        else:
+            build_body = NO_TEMPLATE_BUILD
 
     found = resolve_kb.resolve(project, ROOT)
     resolve_kb.emit(found)
@@ -285,7 +352,11 @@ def main(argv):
         return fail(str(exc))
 
     created, skipped = [], []
-    write_new(os.path.join(project, "AGENTS.md"), agents, created, skipped)
+    agents_path = os.path.join(project, "AGENTS.md")
+    agents_existed = os.path.exists(agents_path)
+    write_new(agents_path, agents, created, skipped)
+    if agents_existed and build_verdict is not None:
+        report_agents_mismatch(agents_path, build_verdict)
     write_new(
         os.path.join(project, ".cursor", "rules", "apollo-v4.mdc"),
         PROJECT_RULE,
@@ -345,15 +416,10 @@ def main(argv):
         if not ignore.endswith("\n"):
             ignore += "\n"
         write_new(os.path.join(project, ".gitignore"), ignore, created, skipped)
-        if args.makefile_template:
-            if not os.path.isfile(args.makefile_template):
-                return fail(f"Makefile template is missing: {args.makefile_template}")
-            with open(args.makefile_template, encoding="utf-8") as fh:
-                makefile = fh.read()
-            makefile, notes = adjust_makefile(makefile, name, languages)
-            for note in notes:
+        if makefile_text is not None:
+            for note in makefile_notes:
                 print(note)
-            write_new(os.path.join(project, "Makefile"), makefile, created, skipped)
+            write_new(os.path.join(project, "Makefile"), makefile_text, created, skipped)
         else:
             print("SKIPPED=Makefile reason=no-template")
 

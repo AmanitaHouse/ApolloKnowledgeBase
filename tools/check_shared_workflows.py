@@ -18,6 +18,7 @@ import tempfile
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.dirname(__file__))
 
+import classify_build  # noqa: E402
 import resolve_kb  # noqa: E402
 
 errors = []
@@ -336,6 +337,9 @@ def check_scaffold():
                 fail("ndk32-include line is still active")
             if repo != "ApolloTeam-dev/ApolloKnowledgeBase":
                 fail(f"explicit upstream URL was not recorded, got {repo}")
+            with open(os.path.join(guided, "AGENTS.md"), encoding="utf-8") as fh:
+                if uncommented_make_commands(fh.read()):
+                    fail("an incomplete Makefile template was documented as a safe make command")
             takeover = tempfile.mkdtemp(prefix="akb-takeover-")
             try:
                 taken = run_entry(script, [
@@ -349,6 +353,10 @@ def check_scaffold():
                     body = fh.read()
                 if taken.returncode != 0 or "ApolloTakeOver" not in body or "@" in body:
                     fail("os-takeover starter was not written from its asset")
+                with open(os.path.join(takeover, "AGENTS.md"), encoding="utf-8") as fh:
+                    agents = fh.read()
+                if uncommented_make_commands(agents) or "make compile" in agents:
+                    fail("guided setup without a Makefile template documented make compile")
             finally:
                 shutil.rmtree(takeover, ignore_errors=True)
     finally:
@@ -467,24 +475,15 @@ def check_lesson_gate():
         shutil.rmtree(folder, ignore_errors=True)
 
 
-def recipe_of(text, name):
-    lines = text.splitlines()
-    collected = []
-    seen = False
-    for line in lines:
-        if re.match(rf"^{re.escape(name)}\s*:", line):
-            seen = True
-            collected.append(line)
+def uncommented_make_commands(text):
+    commands = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
             continue
-        if not seen:
-            continue
-        if line.startswith("\t"):
-            collected.append(line)
-        elif line.strip() == "":
-            continue
-        else:
-            break
-    return "\n".join(collected)
+        if stripped == "make" or stripped.startswith("make "):
+            commands.append(stripped)
+    return commands
 
 
 def parse_kv(output):
@@ -534,6 +533,421 @@ def smoke_compile(info, project):
         print("RESULT compiler-smoke FAIL")
 
 
+def lines_of(text):
+    return text.strip("\n") + "\n"
+
+
+V12_COMPILE = lines_of("""
+# ApolloCrossDev Makefile Template v1.2
+PWD = $(shell pwd)
+ACD_ROOT ?= $(or $(APOLLOCROSSDEV),$(PWD)/../..)
+PREFIX = $(ACD_ROOT)/Compilers/GCC-6.50-Dev
+ACP = $(ACD_ROOT)/Projects/ApolloExplorer/acp/acp
+APOLLO_V4_HOST = "${AMIGAHOST}:Ram Disk/"
+PROJECT_NAME = probe
+PROJECT_DIR = $(PWD)
+C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc
+S_COMPILER = $(PREFIX)/bin/vasmm68k_mot
+O_LINKER = $(PREFIX)/bin/m68k-amigaos-gcc
+C_SOURCEDIR = $(PROJECT_DIR)
+S_SOURCEDIR = $(PROJECT_DIR)
+C_OBJECTDIR = $(PROJECT_DIR)
+S_OBJECTDIR = $(PROJECT_DIR)
+C_FILES = $(wildcard $(C_SOURCEDIR)/*.c)
+S_FILES = $(wildcard $(S_SOURCEDIR)/*.s)
+O_FILES = $(patsubst $(C_SOURCEDIR)/%.c,$(C_OBJECTDIR)/%.o,$(C_FILES)) $(patsubst $(S_SOURCEDIR)/%.s,$(S_OBJECTDIR)/%.o,$(S_FILES))
+EXE = $(PROJECT_DIR)/$(PROJECT_NAME)
+all: init cleanbefore build upload_all cleanafter exit
+compile: init cleanbefore build cleanafter exit
+init:
+	@clear 2>/dev/null || true
+	@echo "start"
+cleanbefore:
+	@rm -f $(C_OBJECTDIR)/*.o $(EXE)
+build: $(EXE)
+	@echo "link done"
+$(EXE): $(O_FILES)
+	@$(O_LINKER) $(O_FILES) -o $(EXE) >>/dev/null
+$(C_OBJECTDIR)/%.o: $(C_SOURCEDIR)/%.c
+	@$(C_COMPILER) -c -o $@ $< >>/dev/null
+$(S_OBJECTDIR)/%.o: $(S_SOURCEDIR)/%.s
+	@$(S_COMPILER) -Fhunk -o $@ $< >>/dev/null
+upload_all:
+	@$(ACP) $(EXE) $(APOLLO_V4_HOST)
+cleanafter:
+	@rm -f $(C_OBJECTDIR)/*.o
+exit:
+	@echo "done"
+""")
+
+V10_CLEANBEFORE = lines_of("""
+# ApolloCrossDev Makefile Template v1.0
+PWD = $(shell pwd)
+PREFIX = $(PWD)/../../Compilers/GCC-6.50
+ACP = $(PWD)/../../Projects/ApolloExplorer/acp/acp
+APOLLO_V4_HOST = "${AMIGAHOST}:Ram Disk/"
+PROJECT_NAME = probe
+PROJECT_DIR = $(PWD)
+C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc
+S_COMPILER = $(PREFIX)/bin/vasmm68k_mot
+O_LINKER = $(PREFIX)/bin/m68k-amigaos-gcc
+C_SOURCEDIR = $(PROJECT_DIR)
+S_SOURCEDIR = $(PROJECT_DIR)
+C_OBJECTDIR = $(PROJECT_DIR)
+S_OBJECTDIR = $(PROJECT_DIR)
+C_FILES = $(wildcard $(C_SOURCEDIR)/*.c)
+S_FILES = $(wildcard $(S_SOURCEDIR)/*.s)
+O_FILES = $(patsubst $(C_SOURCEDIR)/%.c,$(C_OBJECTDIR)/%.o,$(C_FILES)) $(patsubst $(S_SOURCEDIR)/%.s,$(S_OBJECTDIR)/%.o,$(S_FILES))
+EXE = $(PROJECT_DIR)/$(PROJECT_NAME)
+all: init cleanbefore build upload cleanafter exit
+init:
+	clear
+	@echo "start"
+cleanbefore:
+	@rm -f $(C_OBJECTDIR)/*.o $(EXE)
+build: $(EXE)
+	@echo "link done"
+$(EXE): $(O_FILES)
+	@$(O_LINKER) $(O_FILES) -o $(EXE) >>$(PROJECT_DIR)/$(PROJECT_NAME)-log.txt 2>>$(PROJECT_DIR)/$(PROJECT_NAME)-log.txt
+$(C_OBJECTDIR)/%.o: $(C_SOURCEDIR)/%.c
+	@$(C_COMPILER) -c -o $@ $< >>$(PROJECT_DIR)/$(PROJECT_NAME)-log.txt 2>>$(PROJECT_DIR)/$(PROJECT_NAME)-log.txt
+$(S_OBJECTDIR)/%.o: $(S_SOURCEDIR)/%.s
+	@$(S_COMPILER) -Fhunk -o $@ $< >>/dev/null 2>>$(PROJECT_DIR)/$(PROJECT_NAME)-log.txt
+upload:
+	@$(ACP) $(EXE) $(APOLLO_V4_HOST)
+cleanafter:
+	@rm -f $(C_OBJECTDIR)/*.o
+exit:
+	@echo "done"
+""")
+
+
+def expect_command(name, text, command):
+    verdict = classify_build.classify_text(text, name + ".mk")
+    if verdict.command != command or verdict.status != "verified-non-uploading":
+        fail(f"{name} classified as {verdict.status} {verdict.command}: {verdict.reason}")
+        return None
+    return verdict
+
+
+def expect_refused(name, text, status):
+    verdict = classify_build.classify_text(text, name + ".mk")
+    if verdict.command is not None or verdict.status != status:
+        fail(f"{name} classified as {verdict.status} {verdict.command}: {verdict.reason}")
+    if verdict.command is not None:
+        fail(f"{name} advertised {verdict.command}")
+    return verdict
+
+
+def write_makefile(directory, text, name="Makefile"):
+    path = os.path.join(directory, name)
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+    return path
+
+
+def guided_args(project, template=None):
+    args = [
+        "tools/write_project_files.py",
+        "--project", project,
+        "--setup", "guided",
+        "--name", "probe1",
+        "--what", "A classified probe",
+        "--kind", "tool",
+        "--execution-mode", "os-friendly",
+        "--languages", "C",
+        "--no-claude",
+    ]
+    if template:
+        args.extend(["--makefile-template", template])
+    return args
+
+
+def check_build_commands():
+    """Classify disposable Makefiles. This never runs make."""
+    before = len(errors)
+    script = open(
+        os.path.join(ROOT, "skills", "apollo-build", "scripts", "find-acd.sh"),
+        encoding="utf-8",
+    ).read()
+    if "classify_build.py" not in script:
+        fail("find-acd.sh does not use tools/classify_build.py")
+    if "build with: make cleanbefore build" in script:
+        fail("find-acd.sh still recommends make cleanbefore build unconditionally")
+    expect_command("v1.2 compile", V12_COMPILE, "make compile")
+    expect_command("v1.0 cleanbefore", V10_CLEANBEFORE, "make cleanbefore build")
+    expect_refused(
+        "direct upload",
+        "cleanbefore:\n\t@rm -f app\nbuild:\n\tacp app host\n",
+        "upload-capable",
+    )
+    expect_refused(
+        "upload dependency",
+        "cleanbefore:\n\t@rm -f app\nbuild: ship\n\t@echo done\nship:\n\tacp app host\n",
+        "upload-capable",
+    )
+    expect_refused(
+        "variable upload",
+        "ACP = /opt/ApolloExplorer/acp/acp\ncleanbefore:\n\t@rm -f app\nbuild:\n\t@$(ACP) app host\n",
+        "upload-capable",
+    )
+    expect_refused(
+        "recursive upload",
+        "cleanbefore:\n\t@echo clean\nbuild:\n\t@$(MAKE) ship\nship:\n\tacp app host\n",
+        "upload-capable",
+    )
+    expect_refused(
+        "hidden recursive variable",
+        "GO = $(MAKE) ship\nACP = /tools/acp\ncleanbefore:\n\t@echo clean\nbuild:\n\t@$(GO)\nship:\n\t@$(ACP) app host\n",
+        "upload-capable",
+    )
+    expect_refused(
+        "recursive other directory",
+        "cleanbefore:\n\t@echo clean\nbuild:\n\t@$(MAKE) -C elsewhere\n",
+        "unverified",
+    )
+    expect_refused(
+        "recursive other makefile",
+        "cleanbefore:\n\t@echo clean\nbuild:\n\t@$(MAKE) -f other.mk compile\n",
+        "unverified",
+    )
+    expect_refused(
+        "external shell script",
+        "compile:\n\t@./upload.sh probe\n",
+        "unverified",
+    )
+    expect_refused(
+        "shell wrapper",
+        "compile:\n\t@sh tools/upload.sh probe\n",
+        "unverified",
+    )
+    expect_refused(
+        "unfamiliar executable",
+        "compile:\n\t@deploy-to-v4 probe\n",
+        "unverified",
+    )
+    expect_refused(
+        "command expansion",
+        "compile:\n\t@$(UPLOAD_TOOL) probe\n",
+        "unverified",
+    )
+    expect_refused("missing targets", "PROJECT_NAME = probe\n", "unverified")
+    expect_refused(
+        "duplicate rule",
+        "compile:\n\t@echo one\ncompile:\n\t@echo two\n",
+        "unverified",
+    )
+    expect_refused(
+        "conditional",
+        "ifeq (1,1)\ncompile:\n\t@echo ok\nendif\n",
+        "unverified",
+    )
+    expect_refused(
+        "unsupported function",
+        "compile:\n\t@echo $(foreach x,a,b)\n",
+        "unverified",
+    )
+    expect_refused(
+        "template comment is not evidence",
+        "# ApolloCrossDev Makefile Template v1.2\ncompile:\n\tacp app host\n",
+        "upload-capable",
+    )
+    expect_refused(
+        "echo recipe hides an upload dependency",
+        "compile: build\nbuild: build_step\n\t@echo no acp here\nbuild_step:\n\tacp app host\n",
+        "upload-capable",
+    )
+    folder = tempfile.mkdtemp(prefix="akb-classify-")
+    try:
+        parent = os.path.join(folder, "with-include.mk")
+        with open(parent, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write("include missing-rules.mk\ncompile:\n\t@echo ok\n")
+        verdict = classify_build.classify_makefile(parent)
+        if verdict.command is not None or verdict.status != "unverified":
+            fail(f"missing include was classified as {verdict.status} {verdict.command}")
+        extra = os.path.join(folder, "extra.mk")
+        with open(extra, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write("compile: upload\nupload:\n\tacp app host\n")
+        main_mk = os.path.join(folder, "main.mk")
+        with open(main_mk, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write("include extra.mk\n")
+        verdict = classify_build.classify_makefile(main_mk)
+        if verdict.command is not None or verdict.status != "upload-capable":
+            fail(f"included upload was classified as {verdict.status} {verdict.command}: {verdict.reason}")
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+    expect_refused(
+        "build depends on named upload target",
+        "cleanbefore:\n\t@rm -f app\nbuild: upload\n\t@echo linked\nupload:\n\tacp app host\n",
+        "upload-capable",
+    )
+
+    project = tempfile.mkdtemp(prefix="akb-agents-")
+    try:
+        safe_template = write_makefile(project, V12_COMPILE, "v12.mk")
+        unsafe_template = write_makefile(
+            project,
+            "cleanbefore:\n\t@rm -f probe1\nbuild:\n\tacp probe1 host\n",
+            "unsafe.mk",
+        )
+        old_template = write_makefile(project, V10_CLEANBEFORE, "v10.mk")
+        created = run_py(guided_args(project, safe_template))
+        agents_path = os.path.join(project, "AGENTS.md")
+        if created.returncode != 0 or not os.path.isfile(agents_path):
+            fail(f"guided project with a v1.2 template was not created:\n{created.stdout}")
+        else:
+            with open(agents_path, encoding="utf-8") as fh:
+                agents = fh.read()
+            commands = uncommented_make_commands(agents)
+            if commands != ["make compile"]:
+                fail(f"v1.2 template documented {commands}")
+            written = open(os.path.join(project, "Makefile"), encoding="utf-8").read()
+            written_verdict = classify_build.classify_text(written, os.path.join(project, "Makefile"))
+            if written_verdict.command != "make compile":
+                fail(
+                    "AGENTS.md documented make compile but the written Makefile "
+                    f"classified as {written_verdict.status} {written_verdict.command}"
+                )
+            if "Makefile that will be written" not in agents:
+                fail("AGENTS.md did not say the documented command came from the written Makefile")
+            original = open(agents_path, "rb").read()
+            again = run_py(guided_args(project, safe_template))
+            if open(agents_path, "rb").read() != original:
+                fail("a second guided run changed an existing AGENTS.md")
+            if "NOTE=existing AGENTS.md was left unchanged" in again.stdout:
+                fail("a matching template was reported as a build-command mismatch")
+            mismatched = run_py(guided_args(project, unsafe_template))
+            if open(agents_path, "rb").read() != original:
+                fail("a mismatched template rewrote AGENTS.md")
+            if "NOTE=existing AGENTS.md was left unchanged" not in mismatched.stdout:
+                fail(f"a mismatched template did not report NOTE=:\n{mismatched.stdout}")
+            if "make cleanbefore build" in mismatched.stdout and "BUILD=" in mismatched.stdout:
+                fail("mismatch note advertised an unrequested build")
+        bare = tempfile.mkdtemp(prefix="akb-notemplate-")
+        try:
+            bare_run = run_py(guided_args(bare))
+            bare_agents = os.path.join(bare, "AGENTS.md")
+            if bare_run.returncode != 0 or not os.path.isfile(bare_agents):
+                fail(f"guided project without a template failed:\n{bare_run.stdout}")
+            else:
+                with open(bare_agents, encoding="utf-8") as fh:
+                    text = fh.read()
+                if uncommented_make_commands(text) or "make compile" in text:
+                    fail("guided setup without a template documented a make command")
+                if "No Makefile template was supplied." not in text:
+                    fail("guided setup without a template did not explain the missing command")
+        finally:
+            shutil.rmtree(bare, ignore_errors=True)
+        older = tempfile.mkdtemp(prefix="akb-v10-")
+        try:
+            older_run = run_py(guided_args(older, old_template))
+            older_agents = os.path.join(older, "AGENTS.md")
+            if older_run.returncode != 0 or not os.path.isfile(older_agents):
+                fail(f"v1.0 guided project failed:\n{older_run.stdout}")
+            else:
+                with open(older_agents, encoding="utf-8") as fh:
+                    commands = uncommented_make_commands(fh.read())
+                if commands != ["make cleanbefore build"]:
+                    fail(f"v1.0 template documented {commands}")
+        finally:
+            shutil.rmtree(older, ignore_errors=True)
+        preserved = tempfile.mkdtemp(prefix="akb-preserve-")
+        try:
+            hand = os.path.join(preserved, "AGENTS.md")
+            with open(hand, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write("# keep\nmake compile\n")
+            before_bytes = open(hand, "rb").read()
+            kept = run_py(guided_args(preserved, old_template))
+            if open(hand, "rb").read() != before_bytes:
+                fail("an existing AGENTS.md was rewritten")
+            if kept.returncode != 0 or "NOTE=existing AGENTS.md was left unchanged" not in kept.stdout:
+                fail(f"existing make compile was not reported against a v1.0 template:\n{kept.stdout}")
+        finally:
+            shutil.rmtree(preserved, ignore_errors=True)
+    finally:
+        shutil.rmtree(project, ignore_errors=True)
+
+    shell = shell_path()
+    if not shell:
+        print("RESULT find-acd-classify NOT VERIFIED")
+        print("REASON=sh is not on PATH, so find-acd.sh was not executed")
+    else:
+        home = tempfile.mkdtemp(prefix="akb-acd-home-")
+        acd = tempfile.mkdtemp(prefix="akb-acd-root-")
+        safe_project = tempfile.mkdtemp(prefix="akb-acd-safe-")
+        unsafe_project = tempfile.mkdtemp(prefix="akb-acd-unsafe-")
+        try:
+            os.makedirs(os.path.join(acd, "Compilers"))
+            os.makedirs(os.path.join(acd, "Projects", "_makefiles"))
+            with open(os.path.join(acd, "Projects", "_makefiles", "Makefile"), "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(V12_COMPILE)
+            write_makefile(safe_project, V12_COMPILE)
+            # Safe ApolloCrossDev template, unsafe project Makefile: the
+            # project file must decide BUILD=, not the template alone.
+            write_makefile(
+                unsafe_project,
+                "# ApolloCrossDev Makefile Template v1.2\n"
+                "compile:\n"
+                "\tacp probe host\n",
+            )
+            env = os.environ.copy()
+            env["HOME"] = home
+            env["APOLLOCROSSDEV"] = acd
+            script_path, temporary = posix_script(
+                os.path.join(ROOT, "skills", "apollo-build", "scripts", "find-acd.sh")
+            )
+            try:
+                safe_run = subprocess.run(
+                    [shell, script_path, "--offline", safe_project],
+                    env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
+                )
+                unsafe_run = subprocess.run(
+                    [shell, script_path, "--offline", unsafe_project],
+                    env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
+                )
+            finally:
+                if temporary:
+                    os.remove(script_path)
+            if "make" in safe_run.args:
+                fail("find-acd.sh was invoked with make")
+            safe_info = parse_kv(safe_run.stdout)
+            if safe_info.get("BUILD") != "make compile":
+                fail(f"find-acd.sh did not report the verified command:\n{safe_run.stdout}")
+            if "build with: make cleanbefore build" in safe_run.stdout:
+                fail("find-acd.sh used the unconditional fallback")
+            unsafe_info = parse_kv(unsafe_run.stdout)
+            if unsafe_info.get("TEMPLATE") != "v1.2":
+                fail(
+                    "find-acd.sh did not report the safe ApolloCrossDev template "
+                    f"while testing an unsafe project Makefile:\n{unsafe_run.stdout}"
+                )
+            if unsafe_info.get("MAKEFILE") != "v1.2":
+                fail(
+                    "find-acd.sh did not report the project Makefile version "
+                    f"while testing an unsafe project Makefile:\n{unsafe_run.stdout}"
+                )
+            if "BUILD" in unsafe_info:
+                fail(
+                    "find-acd.sh recommended a command from a safe template while "
+                    f"the project Makefile uploads:\n{unsafe_run.stdout}"
+                )
+            if "no Make command can be recommended automatically" not in unsafe_run.stdout:
+                fail(f"find-acd.sh did not explain the refused command:\n{unsafe_run.stdout}")
+            if "acp" not in unsafe_run.stdout:
+                fail(
+                    "find-acd.sh refused the project Makefile without naming the "
+                    f"upload command:\n{unsafe_run.stdout}"
+                )
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(safe_project, ignore_errors=True)
+            shutil.rmtree(unsafe_project, ignore_errors=True)
+    if len(errors) == before:
+        print("WORKFLOW build-command classification: PASS")
+
+
 def check_toolchain():
     shell = shell_path()
     if not shell:
@@ -576,18 +990,20 @@ def check_toolchain():
             print("RESULT guided-build NOT VERIFIED")
             print("REASON=the guided files were not created, so make was not run")
             return
-        with open(makefile_path, encoding="utf-8", errors="replace") as fh:
-            makefile = fh.read()
-        if re.search(r"(?m)^compile\s*:", makefile):
-            target = "compile"
-        else:
-            recipe = recipe_of(makefile, "build")
-            if not recipe or re.search(r"upload|acp", recipe, re.I):
-                print("RESULT guided-build NOT VERIFIED")
-                print("REASON=the Makefile has no compile target and its build recipe uploads or is missing; make was not run")
-                return
-            target = "cleanbefore build"
-        command = ["make", *target.split(), f"PREFIX={info['PREFIX']}", f"APOLLOLIB={os.path.join(info['ACD_ROOT'], 'Projects', 'ApolloLib')}"]
+        verdict = classify_build.classify_makefile(makefile_path)
+        if verdict.command not in ("make compile", "make cleanbefore build"):
+            print("RESULT guided-build NOT VERIFIED")
+            print(
+                "REASON=the Makefile has no verified non-uploading target, so make was not run: "
+                + verdict.reason
+            )
+            return
+        command = [
+            "make",
+            *verdict.command.split()[1:],
+            f"PREFIX={info['PREFIX']}",
+            f"APOLLOLIB={os.path.join(info['ACD_ROOT'], 'Projects', 'ApolloLib')}",
+        ]
         env = os.environ.copy()
         env["APOLLOCROSSDEV"] = info["ACD_ROOT"]
         env.setdefault("TERM", "xterm")
@@ -612,6 +1028,8 @@ def check_toolchain():
             )
             kind = shown.stdout.strip()
             print(kind)
+        with open(makefile_path, encoding="utf-8", errors="replace") as fh:
+            makefile = fh.read()
         missing_ndk = []
         for line in makefile.splitlines():
             stripped = line.strip()
@@ -652,6 +1070,7 @@ def main():
     check_scaffold()
     check_find_acd_absent()
     check_lesson_gate()
+    check_build_commands()
     check_toolchain()
     print(f"{len(errors)} structural problems")
     return 1 if errors else 0
