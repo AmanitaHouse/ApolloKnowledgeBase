@@ -181,8 +181,12 @@ only build-command policy: do not keep a second one.
 | no project Makefile | Use the flags in `KB toolchain/c-compiler-options.md` exactly, and the NDK from step 4. |
 
 - A `BUILD=` line is the only Make command this skill may run on its own,
-  and only when there is no unresolved `PROBLEM=`. `make` and `make debug`
-  upload on the documented templates. Run them only when the user asks.
+  and only when there is no unresolved `PROBLEM=`. Plain `make` and
+  `make debug` upload on v1.0 and on earlier v1.2 (`d636629`); later v1.2
+  (`d571781` / `605007e`) has no upload targets and no `compile` target
+  (`KB toolchain/project-makefile.md`). Do not run plain `make` or
+  `make debug` unless the developer asks and the project's Makefile shows
+  what those goals do.
 - Do not treat a missing `compile` target, a recipe that never mentions
   `acp`, or an `UPDATE=` line as permission to choose a target or to update
   ApolloCrossDev. The user decides about `UPDATE=`.

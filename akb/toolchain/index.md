@@ -55,7 +55,9 @@ C and C++: `-O2 -m68080 -m68881 -ffast-math -fomit-frame-pointer`. Details in
 
 ### What else is installed
 
-- Amiga NDKs 1.3, 3.9 and 3.2 (3.2 is the default), see
+- Amiga NDK headers via amiga-gcc (`NDK=3.2` by default) under
+  `ndk-include`, plus a derived `ndk13-include` tree. Project Makefiles
+  still name `ndk32-include` / `ndk39-include`; see
   `toolchain/target-os-headers.md`
 - C runtimes libnix (default) and clib2
 - Libraries and headers: MUI 5, SDL (base, mixer, ttf, image), Vorbis, Ogg,
