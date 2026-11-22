@@ -174,7 +174,7 @@ printf '\n'
 akb_to_wsl_path 'os-friendly'
 printf '\n'
 set -- keep-me
-akb_wsl_reexec /bin/true other
+akb_wsl_reexec /bin/true othe
 printf '%s\n' "$1"
 """
     result = subprocess.run(
@@ -382,8 +382,8 @@ def check_scaffold():
             fail(f"scaffold did not prefer the submodule:\n{result.stdout}")
         elif "SUBMODULE_TEMPLATE_MARKER" not in text:
             fail("scaffold did not read the submodule template")
-        elif repo != "AmanitaHouse/ApolloKnowledgeBase":
-            fail(f"default submodule slug must be the fork, got {repo}")
+        elif repo != "ApolloTeam-dev/ApolloKnowledgeBase":
+            fail(f"default submodule slug must be Apollo Team, got {repo}")
         bare = tempfile.mkdtemp(prefix="akb-uninit-")
         try:
             os.makedirs(os.path.join(bare, "ApolloKnowledgeBase"))

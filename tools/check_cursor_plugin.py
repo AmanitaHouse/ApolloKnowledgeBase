@@ -14,7 +14,7 @@ import yaml
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
-FORK_REPO = "https://github.com/AmanitaHouse/ApolloKnowledgeBase"
+DEFAULT_REPO = "https://github.com/ApolloTeam-dev/ApolloKnowledgeBase"
 NAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$")
 MARKET_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
@@ -56,8 +56,8 @@ def check_manifests():
         fail("plugin.json version must be semantic")
     if not plugin.get("description"):
         fail("plugin.json description is empty")
-    if plugin.get("repository") != FORK_REPO:
-        fail(f"plugin.json repository must be {FORK_REPO}")
+    if plugin.get("repository") != DEFAULT_REPO:
+        fail(f"plugin.json repository must be {DEFAULT_REPO}")
     author = plugin.get("author") or {}
     if author.get("name") != "Apollo Team":
         fail("plugin.json author.name must stay Apollo Team")
@@ -83,8 +83,8 @@ def check_manifests():
     manifest = os.path.join(plugin_dir, ".cursor-plugin", "plugin.json")
     if os.path.normpath(plugin_dir) != os.path.normpath(ROOT) or not os.path.isfile(manifest):
         fail("marketplace source must resolve to this repository's .cursor-plugin/plugin.json")
-    if entry.get("repository") not in (None, FORK_REPO):
-        fail("marketplace repository must be the AmanitaHouse fork")
+    if entry.get("repository") not in (None, DEFAULT_REPO):
+        fail("marketplace repository must be the Apollo Team repository")
     if os.path.getsize(market_path) > 10 * 1024 * 1024:
         fail("marketplace.json exceeds 10 MB")
     if not errors:

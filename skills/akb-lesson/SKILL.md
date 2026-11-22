@@ -45,10 +45,10 @@ The rules behind this skill are `KB AGENTS.md` section 8 and
 
 Offer the lesson in one or two sentences and say what it would contain.
 Write it only when the developer wants it. Nothing is submitted without
-their approval of the final text. Do not open a pull request, issue, or
+their approval of the final text. Do not open a pull request, issue, o
 the manager form in the same turn as the first draft.
 
-## 2. Gather
+## 2. Gathe
 
 - The project's `AGENTS.md`: name, target core, model, OS, mode.
 - `git log` since the start or the last release, and the conversation.
@@ -77,7 +77,7 @@ Fill every section of the template; remove every `<placeholder>`. Be
 specific and honest in "What the AI got wrong": concrete mistakes with
 examples. Every claim in "Evidence" names its source tag ((G), (M),
 (official), (SRC)), the core and the method; a claim without evidence goes
-under "What went wrong" as an observation, not as a fact. Under
+under "What went wrong" as an observation, not as a fact. Unde
 "Candidates for distillation", name the KB file to create or change
 (`core/pitfalls/...`, `toolchain/best-practices/...`).
 
@@ -96,7 +96,7 @@ install, install PyYAML only there, and run the two programs with that
 interpreter. When `venv` is missing, download the PyYAML wheel that
 matches the interpreter into a directory outside the checkout and put
 that directory on `PYTHONPATH`. Do not copy it into system
-`site-packages`, and do not use `sudo` or the distro package manager
+`site-packages`, and do not use `sudo` or the distro package manage
 unless the developer agrees.
 
 Fix what they report. Do not submit a file that still fails these checks.
@@ -109,18 +109,17 @@ A later edit invalidates the approval until they accept the new text.
 
 ## 6. Submit only after a destination and a gate
 
-Do not assume the pull request goes to this fork
-(`AmanitaHouse/ApolloKnowledgeBase`) or to Apollo Team
-(`ApolloTeam-dev/ApolloKnowledgeBase`). Before any `git push`, `gh pr create`,
-or issue creation:
+Do not assume the pull request goes to
+`ApolloTeam-dev/ApolloKnowledgeBase` or to another clone the develope
+names. Before any `git push`, `gh pr create`, or issue creation:
 
 1. In the submodule, read `git remote -v` and `git status`. If there is no
    submodule, say so and offer the manager or an issue instead of pushing
    the plugin install.
 2. Tell the developer the remotes you found and ask which destination they
-   want: that `origin`, the other of the two repositories above, the
-   ApolloKnowledgeBase-Manager, or the "Submit a lesson" issue form on the
-   repository they name.
+   want: that `origin`, `ApolloTeam-dev/ApolloKnowledgeBase`, another clone
+   they name, the ApolloKnowledgeBase-Manager, or the "Submit a lesson"
+   issue form on the repository they name.
 3. Wait for an explicit yes to that destination and to the lesson text.
 
 Then run `scripts/submit-gate.sh` with the host launch, the draft, the
@@ -157,5 +156,5 @@ in for them.
 repository they named and paste the lesson.
 
 Tell the developer the pull request or issue link. A maintainer merges it;
-the team later distills it into best practices, pitfalls or guides. Never
+the team later distills it into best practices, pitfalls or guides. Neve
 publish or submit a lesson automatically.
