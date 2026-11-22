@@ -219,14 +219,19 @@ them. Do not treat these manifests as a publication submission.
 - **Guided** also asks for the name, kind, execution mode (`os-friendly` or
   `os-takeover`), and languages (`C`, `C++`, `assembler`, or a combination).
   It checks ApolloCrossDev, writes a Makefile from that install's template,
-  writes the C starter `main.c`, and builds with the command that template
-  was classified as non-uploading. C++ selects the template `g++` line when
-  that line exists. Assembler is recorded, and the notes say whether the
-  template discovers `.s` files. Guided setup does not write a C++ or
-  assembler starter. The installed v1.0 template and the documented v1.2
-  template collect `.c` and `.s` only, not `.cpp`. A non-uploading Make
-  classification does not verify C++ or assembler. An empty or unknown
-  language is rejected before any project file is written.
+  and builds with the command that template was classified as non-uploading.
+  C, assembler, and C `os-takeover` write `main.c`. Os-friendly C++ writes
+  `main.cpp` and adds project `.cpp` discovery when the Makefile template
+  names `m68k-amigaos-g++`. Those `.cpp` files are compiled with that
+  driver through `CXX_COMPILER`. `.c` files stay on the template GCC
+  `C_COMPILER` line. A template with no identifiable G++ assignment, and
+  C++ `os-takeover`, each print `PROBLEM=` and write nothing. Assembler is
+  recorded, and the notes say whether the template discovers `.s` files.
+  No assembler starter is written. A non-uploading Make classification
+  does not verify C++ compilation, linkage, or hardware execution, and it
+  does not verify an assembler program. Standard C++ library and runtime
+  support are not established. An empty or unknown language is rejected
+  before any project file is written.
 
 Existing files are left in place. The agent shows you a proposed change and
 waits.
