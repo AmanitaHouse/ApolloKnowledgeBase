@@ -120,14 +120,19 @@ remote unless the developer agrees in this conversation.
 
 ## 3. Make AKB the agents' central source
 
-Run `scripts/write-project-files.sh` with the host launch after the
-submodule is initialized, so the templates come from that pin
-(`KB_SOURCE=submodule`). Pass
-`--project` and `--setup guided`, plus `--name` when the directory name
-breaks the rule in step 1. Do not rename or move the directory. It writes only
-files that do not exist yet. If it prints `SKIPPED=` because a file exists,
-show the developer the diff you would apply and wait. Do not pass any flag
-that overwrites, and do not write the files by hand over theirs.
+For a basic setup, run `scripts/write-project-files.sh` with the host
+launch after the submodule is initialized, so the templates come from that
+pin (`KB_SOURCE=submodule`). Pass `--project` and `--setup basic`, plus
+`--name` when the directory name breaks the rule in step 1. Do not rename
+or move the directory. It writes only files that do not exist yet. If it
+prints `SKIPPED=` because a file exists, show the developer the diff you
+would apply and wait. Do not pass any flag that overwrites, and do not
+write the files by hand over theirs.
+
+For a guided setup, do not run the script yet. The run that creates
+`AGENTS.md` is step 5, after ApolloCrossDev has been found, and that run
+passes `--makefile-template`. Running it here would record a build command
+before the selected template has been classified.
 
 - **`AGENTS.md`** (Cursor and most other agents): from
   `KB templates/repo/AGENTS.md`, placeholders filled, HTML comments removed.
@@ -139,10 +144,9 @@ that overwrites, and do not write the files by hand over theirs.
   developer does not want Claude Code files. The settings repository slug
   matches the submodule URL from step 2. Cursor never reads these files.
 
-For a guided setup the script also writes `main.c` and `.gitignore` from
-`assets/`. Pass `--makefile-template` only in step 5, after ApolloCrossDev
-has been found. A basic setup stops after `AGENTS.md`, the Cursor rule, and
-the optional Claude files.
+A basic setup stops after `AGENTS.md`, the Cursor rule, and the optional
+Claude files. A guided run without `--makefile-template` writes an
+explanation and names no Make command.
 
 ## 4. ApolloCrossDev: check, install or update (guided setup)
 
@@ -158,7 +162,6 @@ Tell the user what you found and let them choose:
 | `PROBLEM=` a binary is missing | The install failed: point the user to `Compilers/GCC-6.50-Dev/_logs/*_err.log` and the reinstall command. Wait until it is fixed. |
 | `UPDATE=checkout` | `git pull` in the ApolloCrossDev folder: quick, brings new Makefile templates, ApolloLib and scripts. If `LOCAL_CHANGES=` is reported, the user decides about those first. Run the pull only with their consent. |
 | `UPDATE=compiler` | Reinstall GCC-6.50-Dev (the command is in the line; `sudo`, about 30 minutes; the user runs it). Say what the newer build changes: the bug table in `KB toolchain/compiler-variants.md`. The user may also continue now and reinstall later. |
-| `TEMPLATE=` older than v1.2 | `git pull` is required: the project needs `make compile` and builds outside ApolloCrossDev. |
 | `UPDATES=none` | Say the toolchain is up to date. |
 
 Run the check again after an install or update, until it reports no
@@ -169,13 +172,29 @@ so the Makefile needs it. If the check notes it is unset, offer to add
 `export APOLLOCROSSDEV="<ACD_ROOT>"` to `~/.zshrc` (macOS) or `~/.bashrc`
 (Linux), next to `AMIGAHOST` (the V4's IP address, needed for upload; ask
 for it if that is missing too). Change the file only with the user's
-consent. For this session, pass it on the command line:
-`APOLLOCROSSDEV=<ACD_ROOT> make compile`.
+consent. For this session, pass `APOLLOCROSSDEV=<ACD_ROOT>` on the classified
+build command from step 7. Do not assume that command is `make compile`.
 
-## 5. Makefile (guided setup)
+## 5. Makefile and project instructions (guided setup)
 
-Copy `<ACD_ROOT>/Projects/_makefiles/Makefile` by re-running the script with
-`--makefile-template` set to that file. It changes only:
+Run `scripts/write-project-files.sh` with the host launch. This is the
+guided invocation that creates `AGENTS.md` when that file does not exist
+yet. Pass `--project`, `--setup guided`, the answers from step 1, and
+`--makefile-template` set to `<ACD_ROOT>/Projects/_makefiles/Makefile`.
+The script classifies that template with `KB tools/classify_build.py` before
+it writes `AGENTS.md`. That is the same classifier `find-acd.sh` uses.
+
+| Classification | What `AGENTS.md` documents |
+|---|---|
+| verified non-uploading `compile` | `make compile` |
+| verified non-uploading `cleanbefore` and `build`, and no safe `compile` | `make cleanbefore build` |
+| unverified, upload-capable, or no template | an explanation, and no Make command |
+
+If `AGENTS.md` already exists, the script leaves it unchanged. If it prints
+`NOTE=` because the file's build command does not match the template, show
+that note and wait. Do not rewrite the file.
+
+The same run writes the Makefile. It changes only:
 
 | Line | Set to |
 |---|---|
@@ -204,12 +223,13 @@ It also copies `assets/gitignore` to `.gitignore`.
 
 ## 7. Build it (guided setup)
 
-Build as the apollo-build skill describes (`KB skills/apollo-build/SKILL.md`):
-`make compile` when the Makefile has that target. It must end with no
-errors and no warnings before you continue. Do not run `make` or
-`make debug`: they upload to the V4. If the template is older than v1.2 and
-has no `compile` target, follow the apollo-build skill for
-`make cleanbefore build`, and only when that target does not upload.
+Build as the apollo-build skill describes (`KB skills/apollo-build/SKILL.md`).
+Run the command in the project's `AGENTS.md` only when that file names
+`make compile` or `make cleanbefore build`. Those are the commands this
+script documents after classifying the template. If the Build and test
+section does not name one of them, do not run make. Do not run `make` or
+`make debug` unless the developer asks. The build must end with no errors
+and no warnings before you continue.
 
 ## 8. Hand over
 

@@ -57,10 +57,11 @@ PowerShell that is `wsl.exe -e sh` and translated paths. On Linux, macOS,
 WSL, and Git Bash it is `sh`.
 
 It prints `ACD_ROOT`, `PREFIX`, `GCC`, `BUILT`, the template and project
-Makefile versions, `PROBLEM=`, `NOTE=` and `UPDATE=` lines (`--offline`
-skips the check on GitHub). `UPDATE=compiler` also comes from the local
-checkout alone: a compiler built before the install script or patches there
-last changed, for example after a `git pull` without a reinstall.
+Makefile versions, `BUILD=`, `BUILD_DETAIL=`, `PROBLEM=`, `NOTE=` and
+`UPDATE=` lines (`--offline` skips the check on GitHub). `UPDATE=compiler`
+also comes from the local checkout alone: a compiler built before the
+install script or patches there last changed, for example after a `git pull`
+without a reinstall. `UPDATE=` is not permission to update ApolloCrossDev.
 
 - Fix every `PROBLEM` before building, with the user: a missing toolchain
   means installing ApolloCrossDev (`KB toolchain/index.md`, section
@@ -109,19 +110,27 @@ shown to contain the reload fix.
 
 The project's Makefile comes from ApolloCrossDev's template
 (`Projects/_makefiles/Makefile`, see `KB toolchain/project-makefile.md`).
+`scripts/find-acd.sh` classifies that Makefile with
+`KB tools/classify_build.py`. It does not run make. The classifier is the
+only build-command policy: do not keep a second one.
 
-| Goal | Command |
+| find-acd.sh line | What you do |
 |---|---|
-| Compile and link only | `make compile` (template v1.2 and later); with an older Makefile `make cleanbefore build` |
-| Also upload to the V4 (`$AMIGAHOST`) | `make` |
-| Upload with the remote debugger | `make debug` |
+| `BUILD=make compile` or `BUILD=make cleanbefore build` | Run that command. `BUILD_DETAIL=` says why it was classified as non-uploading. |
+| `NOTE=` that no Make command can be recommended | Do not run make. Do not invent `make compile` or `make cleanbefore build`. |
+| no project Makefile | Use the flags in `KB toolchain/c-compiler-options.md` exactly, and the NDK from step 4. |
 
-- Run `make compile` yourself when the Makefile has that target. On an
-  older Makefile, run `make cleanbefore build` only after you have read the
-  `build` recipe and it does not upload. If it does, compile with the
-  command in `KB toolchain/c-compiler-options.md` instead. Never run `make`
-  or `make debug` unless the user asks: they copy files to the user's
-  Apollo V4 over the network.
+- A `BUILD=` line is the only Make command this skill runs on its own.
+  `make` and `make debug` upload on the documented templates. Run them only
+  when the user asks.
+- Do not treat a missing `compile` target, a recipe that never mentions
+  `acp`, or an `UPDATE=` line as permission to choose a target or to update
+  ApolloCrossDev. The user decides about `UPDATE=`.
+- The classifier walks the selected target's prerequisites, expanded
+  variables, included Makefiles, and recursive make that stays in the same
+  file. It recognizes the documented ApolloCrossDev template shape. An
+  unsupported or ambiguous construct is unverified, and then there is no
+  `BUILD=` line.
 - The Makefile hides compiler stdout; errors and warnings arrive on stderr.
   Read all of it.
 - Without a Makefile (a quick test), use the flags from

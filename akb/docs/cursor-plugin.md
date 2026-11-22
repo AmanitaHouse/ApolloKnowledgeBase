@@ -21,7 +21,7 @@ After installation, Cursor Agent can run three skills:
 | Skill | Invocation | What it does |
 |---|---|---|
 | `apollo-new-project` | `/apollo-new-project` | Guided or basic setup of an Apollo V4 project |
-| `apollo-build` | `/apollo-build` | Find ApolloCrossDev, build with `make compile`, fix the cause of diagnostics |
+| `apollo-build` | `/apollo-build` | Find ApolloCrossDev, build with the classified non-uploading command, fix the cause of diagnostics |
 | `akb-lesson` | `/akb-lesson` | Draft a lesson, validate it, and submit only after you approve |
 
 The plugin does not copy the knowledge base into the prompt. The agent reads
@@ -218,8 +218,8 @@ them. Do not treat these manifests as a publication submission.
   the directory.
 - **Guided** also asks for the name, kind, execution mode (`os-friendly` or
   `os-takeover`), and languages. It checks ApolloCrossDev, writes a Makefile
-  from that install's template, writes `main.c`, and builds with `make compile`
-  when the template has that target.
+  from that install's template, writes `main.c`, and builds with the command
+  that template was classified as non-uploading.
 
 Existing files are left in place. The agent shows you a proposed change and
 waits.
@@ -269,10 +269,11 @@ looks at `APOLLOCROSSDEV`, then two folders above the project, then
 reinstalling GCC-6.50-Dev takes a long time and uses `sudo`; you run that
 script yourself. The agent may clone the toolchain only with your consent.
 
-Build with `make compile` on Makefile template v1.2 or later. Plain `make`
-and `make debug` upload to the V4 at `$AMIGAHOST`. The agent runs those only
-when you ask. A template older than v1.2 has no `compile` target; its `build`
-target may be used only when that recipe does not upload.
+When the project has a Makefile, `find-acd.sh` prints `BUILD=` only for a
+command it has classified as non-uploading: `make compile`, or
+`make cleanbefore build`. If it prints `NOTE=` that no Make command can be
+recommended, the agent does not run make. Plain `make` and `make debug`
+upload on the documented templates. The agent runs those only when you ask.
 
 Header and flag choices come from `toolchain/`, not from memory. If the
 documented NDK directory is not in your ApolloCrossDev tree, the build is not
@@ -347,9 +348,9 @@ in `AGENTS.md` section 9. On this fork, point that marketplace at
   invocable.
 - This repository has no license file. Local use and a GitHub import are
   described above. Marketplace publication is not.
-- ApolloCrossDev template v1.0 cannot `make compile` and its default goal
-  uploads. Follow `/apollo-build` rather than running `make` to "see if it
-  builds".
+- A Makefile is not treated as safe just because one recipe never mentions
+  `acp`. `/apollo-build` runs a Make command only when `find-acd.sh` prints
+  `BUILD=` for that command.
 - Git Bash is not a build host. Its `python3` is often a Windows Store
   alias, and the ApolloCrossDev compiler is a Linux binary. The skill
   entry points re-exec in WSL when that `python3` works. They do not
@@ -370,7 +371,7 @@ in `AGENTS.md` section 9. On this fork, point that marketplace at
 | `sh` is not recognized in PowerShell | The agent shell is Windows PowerShell. Use the host-launch section: `wsl.exe -e sh` or `wsl.exe -e python3`, with Windows paths translated. Do not call the Windows Store `python` alias. |
 | `PROBLEM=python3 is not on PATH` from a skill entry point | The `sh` script is running, and the shared program in `tools/` needs Python 3. PyYAML is not required for that program. On Git Bash this line means WSL `python3` was not usable either. The Windows Store aliases in `WindowsApps` are not a Python install. Start WSL, or install a Python 3 that `python3 -c "import sys"` can run. |
 | `UPDATE=compiler` or `UPDATE=checkout` | You decide. A build may continue. A reinstall is yours to run. |
-| Build has no `compile` target | The template is older than v1.2. Do not run plain `make` unless you intend to upload. |
+| `NOTE=` that no Make command can be recommended | The Makefile was not classified as non-uploading. Do not run `make`, `make compile`, or `make cleanbefore build` from that note. |
 | Lesson gate prints `SUBMIT=no` | The approved copy differs from the draft, or the destination is not `owner/repo`. Nothing was published. |
 
 From the repository root, with PyYAML available to the content checks.

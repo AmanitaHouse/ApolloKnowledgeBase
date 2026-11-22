@@ -2,9 +2,14 @@
 # find-acd.sh - find ApolloCrossDev and check that it can build.
 #
 # Usage: sh find-acd.sh [--offline] [project folder]
-# Prints KEY=value lines (ACD_ROOT, PREFIX, GCC, BUILT, TEMPLATE, MAKEFILE)
-# and exits 0 when the GCC-6.50-Dev toolchain is complete; otherwise prints
-# PROBLEM= lines and exits 1.
+# Prints KEY=value lines (ACD_ROOT, PREFIX, GCC, BUILT, TEMPLATE, MAKEFILE,
+# BUILD, BUILD_DETAIL) and exits 0 when the GCC-6.50-Dev toolchain is
+# complete; otherwise prints PROBLEM= lines and exits 1.
+#
+# When the project has a Makefile, BUILD= is the one verified non-uploading
+# command (make compile, or make cleanbefore build). If that cannot be
+# established, a NOTE= says why no Make command can be recommended. This
+# script does not run make.
 #
 # Updates (skipped with --offline or without network), as UPDATE= lines:
 #   UPDATE=checkout ...   the ApolloCrossDev checkout is behind GitHub:
@@ -34,6 +39,63 @@ offline=0
 project=${1:-.}
 problems=0
 problem() { echo "PROBLEM=$1"; problems=1; }
+
+find_classify_prog() {
+    script_dir=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+    tools=$(CDPATH= cd -- "$script_dir/../../../tools" 2>/dev/null && pwd || true)
+    if [ -n "$tools" ] && [ -f "$tools/classify_build.py" ]; then
+        printf '%s\n' "$tools/classify_build.py"
+        return 0
+    fi
+    dir=$(CDPATH= cd -- . && pwd)
+    while [ "$dir" != "/" ]; do
+        if [ -f "$dir/tools/classify_build.py" ]; then
+            printf '%s\n' "$dir/tools/classify_build.py"
+            return 0
+        fi
+        nxt=$(CDPATH= cd -- "$dir/.." && pwd)
+        [ "$nxt" = "$dir" ] && break
+        dir=$nxt
+    done
+    return 1
+}
+
+find_py() {
+    for candidate in python3 python; do
+        if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info[0] >= 3 else 1)' >/dev/null 2>&1; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Classify the project Makefile. Never recommend a target that was not
+# shown to be non-uploading, and never run make.
+report_build() {
+    file=$1
+    prog=$(find_classify_prog) || {
+        echo "NOTE=no Make command can be recommended automatically: classify_build.py is not available"
+        return
+    }
+    py=$(find_py) || {
+        echo "NOTE=no Make command can be recommended automatically: python3 is not available to classify the Makefile"
+        return
+    }
+    output=$("$py" "$prog" --makefile "$file") || {
+        echo "NOTE=no Make command can be recommended automatically: the Makefile could not be classified"
+        return
+    }
+    status=$(printf '%s\n' "$output" | sed -n 's/^STATUS=//p' | head -n 1)
+    build_cmd=$(printf '%s\n' "$output" | sed -n 's/^COMMAND=//p' | head -n 1)
+    reason=$(printf '%s\n' "$output" | sed -n 's/^REASON=//p' | head -n 1)
+    if [ "$status" = "verified-non-uploading" ] && [ -n "$build_cmd" ]; then
+        echo "BUILD=$build_cmd"
+        echo "BUILD_DETAIL=$reason"
+    else
+        echo "NOTE=${reason:-no Make command can be recommended automatically: the Makefile could not be classified}"
+    fi
+}
 
 if [ -n "$APOLLOCROSSDEV" ] && [ ! -d "$APOLLOCROSSDEV/Compilers" ]; then
     problem "APOLLOCROSSDEV=$APOLLOCROSSDEV has no Compilers folder; the Makefile uses it, so fix or unset it"
@@ -71,14 +133,13 @@ fi
 template="$root/Projects/_makefiles/Makefile"
 if [ -f "$template" ]; then
     echo "TEMPLATE=$(sed -n 's/^# ApolloCrossDev Makefile Template //p' "$template" | head -n 1)"
-    grep -q '^compile:' "$template" || echo "NOTE=the Makefile template has no 'make compile' target: update ApolloCrossDev (git pull)"
 else
     problem "$template is missing"
 fi
 
 if [ -f "$project/Makefile" ]; then
     echo "MAKEFILE=$(sed -n 's/^# ApolloCrossDev Makefile Template //p' "$project/Makefile" | head -n 1)"
-    grep -q '^compile:' "$project/Makefile" || echo "NOTE=the project Makefile has no 'make compile' target; build with: make cleanbefore build"
+    report_build "$project/Makefile"
 fi
 
 case $(uname) in Darwin) script=GCC-6.50-Dev-MacOS.sh ;; *) script=GCC-6.50-Dev-Linux.sh ;; esac
