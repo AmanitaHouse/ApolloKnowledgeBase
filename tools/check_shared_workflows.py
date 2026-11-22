@@ -164,6 +164,76 @@ def check_entry_points():
         print("STATIC shared skill entry points: PASS")
 
 
+def check_os_friendly_detection_applicability():
+    """Os-friendly starters cite AttnFlags detection without overstating coverage."""
+    before = len(errors)
+    skill = open(
+        os.path.join(ROOT, "skills", "apollo-new-project", "SKILL.md"),
+        encoding="utf-8",
+    ).read()
+    for needle in (
+        "Target OS | ApolloOS R10, AmigaOS 3.9 and AmigaOS 3.2",
+        "Target core | the latest core release",
+        "detect-68080-and-fpu-at-run-time.md",
+        "Core 12798–12841",
+        "recorded measurements are for AmigaOS 3.9",
+        "Absence of measurements does not establish",
+        "intended project targets",
+    ):
+        if needle not in skill:
+            fail(f"apollo-new-project is missing detection applicability text {needle!r}")
+    if "Those defaults are the project's intended targets" not in skill:
+        fail("apollo-new-project no longer separates intended targets from verified coverage")
+
+    detection = (
+        "static int has_68080(void) { return (SysBase->AttnFlags & (1 << 10)) != 0; }\n"
+        "static int has_fpu(void)   { return (SysBase->AttnFlags & AFF_68881) != 0; }"
+    )
+    citation = "ApolloKnowledgeBase os/best-practices/detect-68080-and-fpu-at-run-time.md"
+    for name in ("main-os-friendly.c", "main-os-friendly.cpp"):
+        path = os.path.join(ROOT, "skills", "apollo-new-project", "assets", name)
+        text = open(path, encoding="utf-8").read()
+        if detection not in text:
+            fail(f"{name} changed the AttnFlags detection logic")
+        if citation not in text:
+            fail(f"{name} dropped the detection article citation")
+        if "Reviewed applicability: Core 12798-12841, AmigaOS 3.9 and AmigaOS 3.2." not in text:
+            fail(f"{name} is missing the reviewed applicability boundary")
+        if "Recorded measurements: AmigaOS 3.9." not in text:
+            fail(f"{name} is missing the measured-evidence distinction")
+        if "that article does not demonstrate them" not in text:
+            fail(f"{name} no longer says ApolloOS R10 and newer cores are undemonstrated")
+        if "measurements do not mean incompatibility" not in text:
+            fail(f"{name} dropped the non-incompatibility clarification")
+        lowered = text.lower()
+        if "measured on apolloos" in lowered or "verified for apolloos" in lowered:
+            fail(f"{name} claims ApolloOS measurement coverage")
+        if "measured on newer" in lowered or "verified for newer" in lowered:
+            fail(f"{name} claims newer-core measurement coverage")
+    cpp = open(
+        os.path.join(ROOT, "skills", "apollo-new-project", "assets", "main-os-friendly.cpp"),
+        encoding="utf-8",
+    ).read()
+    if "Experimental os-friendly C++ starter" not in cpp:
+        fail("main-os-friendly.cpp lost its experimental status note")
+    if "does not verify\n  compilation, linkage, or hardware execution" not in cpp:
+        fail("main-os-friendly.cpp lost its unverified generation note")
+
+    writer = open(os.path.join(ROOT, "tools", "write_project_files.py"), encoding="utf-8").read()
+    if 'replace_after(text, "- **Target core:** ", "the latest core release")' not in writer:
+        fail("write_project_files.py changed the default Target core")
+    if '"ApolloOS R10, AmigaOS 3.9 and AmigaOS 3.2"' not in writer:
+        fail("write_project_files.py changed the default Target OS list")
+    if (
+        '"the latest core release, any V4 model, "\n'
+        '            "ApolloOS R10, AmigaOS 3.9 and AmigaOS 3.2"'
+    ) not in writer:
+        fail("write_project_files.py changed the guided @TARGETS@ default")
+
+    if len(errors) == before:
+        print("STATIC os-friendly detection applicability: PASS")
+
+
 def check_wsl_reexec_helper():
     """Path conversion and the no-op when this shell is not Git Bash.
 
@@ -2511,6 +2581,7 @@ def main(argv=None):
     else:
         print("NOTE=default mode is fixture-only; pass --run-toolchain for a real Make or compiler probe")
     check_entry_points()
+    check_os_friendly_detection_applicability()
     check_wsl_reexec_helper()
     check_resolve()
     check_scaffold()
