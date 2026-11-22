@@ -145,6 +145,21 @@ def check_entry_points():
             fail(f"akb-lesson is missing the safeguard {needle!r}")
     if "installed Cursor plugin" in build:
         fail("apollo-build still describes the knowledge bundle as Cursor-only")
+    # Ban only the unsupported corrected-form claim. Mentioning ([76,sp]) as
+    # an unverified example remains allowed.
+    if "add.l d2,([76,sp])" in build:
+        fail(
+            "apollo-build revives the unsupported claim that "
+            "add.l d2,([76,sp]) is the pull request #28 corrected form; "
+            "toolchain/pitfalls/gcc-double-indirect-stack-slot.md records "
+            "add.l d2,([56,sp]) as the bug and move.l (76,sp),a0 under "
+            "-fno-double-indirect as the measured workaround"
+        )
+    if "([56,sp])" not in build or "move.l (76,sp),a0" not in build:
+        fail(
+            "apollo-build no longer cites the stack-slot pitfall's documented "
+            "bug operand and -fno-double-indirect workaround assembly"
+        )
     if len(errors) == before:
         print("STATIC shared skill entry points: PASS")
 
