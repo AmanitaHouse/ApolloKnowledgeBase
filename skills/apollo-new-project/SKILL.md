@@ -114,6 +114,19 @@ can change them later in `AGENTS.md`:
 | V4 model | any V4 model |
 | ApolloLib | yes, for SAGA sound, pictures, PIP, pointer and input (`KB core/best-practices/prefer-library-calls-for-saga-chips.md`) |
 
+Those defaults are the project's intended targets. They are not a list of
+hardware configurations verified by every cited knowledge-base article.
+
+The os-friendly starters use the AttnFlags technique from
+`KB os/best-practices/detect-68080-and-fpu-at-run-time.md`. That article's
+reviewed applicability is Core 12798–12841 with AmigaOS 3.9 and AmigaOS 3.2.
+Its recorded measurements are for AmigaOS 3.9. ApolloOS R10 and newer core
+releases remain intended project targets; that article's measurements do
+not demonstrate them. Absence of measurements does not establish
+incompatibility. Tell the developer this boundary when the starter cites
+that article. Do not change the detection checks from the article's
+Technique sample.
+
 ## 2. Create the repository with AKB
 
 In the current folder, and only there:
