@@ -276,10 +276,18 @@ command it has classified as non-uploading: `make compile`, or
 `make cleanbefore build`. If it prints `NOTE=` that no Make command can be
 recommended, the agent does not run make. Plain `make` and `make debug`
 upload on the documented templates. The agent runs those only when you ask.
+A `BUILD=` line does not clear a `PROBLEM=`.
 
-Header and flag choices come from `toolchain/`, not from memory. If the
-documented NDK directory is not in your ApolloCrossDev tree, the build is not
-described as successful.
+Header and flag choices come from `toolchain/`, not from memory. `find-acd.sh`
+checks the documented NDK directories from `toolchain/target-os-headers.md`
+(`m68k-amigaos/ndk39-include`, `m68k-amigaos/ndk32-include/Include_H`) under
+the effective Makefile `PREFIX` when that location and an active wired
+`C_INCL_NDK` can be established without evaluating Make. A missing required
+directory is `PROBLEM=`; uncertainty about the compiler path or flag wiring,
+or an absent directory whose use is not established, is `NOTE=`.
+`m68k-amigaos/ndk-include` is not a substitute. If the documented NDK
+directory is not in your ApolloCrossDev tree, the build is not described as
+successful.
 
 ## Lessons
 
@@ -369,7 +377,7 @@ clone.
 |---|---|
 | Skills missing in Customize | Confirm the copy is a real directory at `~/.cursor/plugins/local/akb` with `.cursor-plugin/plugin.json` inside. Reload the window. On Enterprise, ask whether local plugin imports are allowed. |
 | `PROBLEM=` from `tools/resolve_kb.py` | Follow the `RECOVERY=` lines. An empty `ApolloKnowledgeBase/` folder means the submodule is not initialized. |
-| `PROBLEM=` from `find-acd.sh` | Install ApolloCrossDev or fix `APOLLOCROSSDEV`. Do not point it at a directory without `Compilers/`. |
+| `PROBLEM=` from `find-acd.sh` | Install ApolloCrossDev or fix `APOLLOCROSSDEV`. Do not point it at a directory without `Compilers/`. A `PROBLEM=` about a documented NDK directory means that path is missing under the reported compiler install; do not substitute `ndk-include`. |
 | `sh` is not recognized in PowerShell | The agent shell is Windows PowerShell. Use the host-launch section: `wsl.exe -e sh` or `wsl.exe -e python3`, with Windows paths translated. Do not call the Windows Store `python` alias. |
 | `PROBLEM=python3 is not on PATH` from a skill entry point | The `sh` script is running, and the shared program in `tools/` needs Python 3. PyYAML is not required for that program. On Git Bash this line means WSL `python3` was not usable either. The Windows Store aliases in `WindowsApps` are not a Python install. Start WSL, or install a Python 3 that `python3 -c "import sys"` can run. |
 | `UPDATE=compiler` or `UPDATE=checkout` | You decide. A build may continue. A reinstall is yours to run. |
