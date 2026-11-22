@@ -2,6 +2,10 @@
 # for /bin/sh, so core.autocrlf must not rewrite them on checkout.
 *.sh text eol=lf
 
+# Generated package marker must stay LF. tools/package_cursor_plugin.py
+# compares it byte-for-byte to MARKER.encode("ascii").
+akb/PACKAGE.txt text eol=lf
+
 # akb/sources/official/ is a byte copy of the official originals. Those HTML
 # files already contain trailing spaces. Do not rewrite the copies to satisfy
 # a whitespace check. tools/package_cursor_plugin.py
