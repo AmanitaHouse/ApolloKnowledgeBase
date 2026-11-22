@@ -3,13 +3,19 @@
 #
 # Usage: sh find-acd.sh [--offline] [project folder]
 # Prints KEY=value lines (ACD_ROOT, PREFIX, GCC, BUILT, TEMPLATE, MAKEFILE,
-# BUILD, BUILD_DETAIL) and exits 0 when the GCC-6.50-Dev toolchain is
-# complete; otherwise prints PROBLEM= lines and exits 1.
+# BUILD, BUILD_DETAIL, NDK, NDK_PATH, NDK_COMPILER, NDK_STATUS) and exits 0
+# when the GCC-6.50-Dev toolchain is complete and no confirmed NDK PROBLEM
+# remains; otherwise prints PROBLEM= lines and exits 1.
 #
 # When the project has a Makefile, BUILD= is the one verified non-uploading
 # command (make compile, or make cleanbefore build). If that cannot be
 # established, a NOTE= says why no Make command can be recommended. This
-# script does not run make.
+# script does not run make. A BUILD= line does not clear an NDK PROBLEM=.
+#
+# Documented NDK headers (toolchain/target-os-headers.md), under PREFIX:
+#   NDK 3.9  m68k-amigaos/ndk39-include
+#   NDK 3.2  m68k-amigaos/ndk32-include/Include_H
+# m68k-amigaos/ndk-include is not a documented substitute.
 #
 # Updates (skipped with --offline or without network), as UPDATE= lines:
 #   UPDATE=checkout ...   the ApolloCrossDev checkout is behind GitHub:
@@ -97,6 +103,210 @@ report_build() {
     fi
 }
 
+
+# True when ACD_ROOT in a v1.2-style Makefile can be taken as $acd_root:
+# APOLLOCROSSDEV resolves to it, or the project sits two levels below it.
+ndk_acd_root_resolves() {
+    project=$1
+    acd_root=$2
+    if [ -n "$APOLLOCROSSDEV" ]; then
+        ap=$(CDPATH= cd -- "$APOLLOCROSSDEV" 2>/dev/null && pwd || true)
+        [ -n "$ap" ] && [ "$ap" = "$acd_root" ] && return 0
+    fi
+    parent=$(CDPATH= cd -- "$project/../.." 2>/dev/null && pwd || true)
+    [ -n "$parent" ] && [ "$parent" = "$acd_root" ] && return 0
+    return 1
+}
+
+# Effective compiler install directory, or empty when uncertain.
+# Recognises only documented PREFIX shapes; never invents a path from the
+# Dev/Stable/Base label alone.
+ndk_compiler_root_from_makefile() {
+    file=$1
+    project=$2
+    acd_root=$3
+    prefix_line=$(
+        sed 's/\r$//' "$file" \
+            | sed -n '/^[[:space:]]*#/d; /^[[:space:]]*PREFIX[[:space:]]*=/p' \
+            | tail -n 1
+    )
+    [ -n "$prefix_line" ] || return 0
+
+    variant=""
+    case $prefix_line in
+        *Compilers/GCC-6.50-Dev*) variant=GCC-6.50-Dev ;;
+        *Compilers/GCC-6.50-Stable*) variant=GCC-6.50-Stable ;;
+        *Compilers/GCC-6.50-Base*) variant=GCC-6.50-Base ;;
+    esac
+    [ -n "$variant" ] || return 0
+
+    # v1.2: PREFIX = $(ACD_ROOT)/Compilers/GCC-6.50-...
+    case $prefix_line in
+        *'$(ACD_ROOT)/Compilers/'*)
+            if ndk_acd_root_resolves "$project" "$acd_root"; then
+                printf '%s\n' "$acd_root/Compilers/$variant"
+            fi
+            return 0
+            ;;
+    esac
+
+    # v1.0: PREFIX = $(PWD)/../../Compilers/GCC-6.50-...
+    # Effective only when the project is two levels below the ApolloCrossDev root.
+    case $prefix_line in
+        *'$(PWD)/../../Compilers/'*)
+            parent=$(CDPATH= cd -- "$project/../.." 2>/dev/null && pwd || true)
+            if [ -n "$parent" ] && [ "$parent" = "$acd_root" ]; then
+                printf '%s\n' "$acd_root/Compilers/$variant"
+            fi
+            return 0
+            ;;
+    esac
+
+    return 0
+}
+
+# Last uncommented C_INCL_NDK= that names a documented NDK path fragment.
+ndk_required_from_makefile() {
+    file=$1
+    line=$(
+        sed 's/\r$//' "$file" \
+            | sed -n '/^[[:space:]]*#/d; /^[[:space:]]*C_INCL_NDK[[:space:]]*=/p' \
+            | tail -n 1
+    )
+    case $line in
+        *ndk39-include*) printf '%s\n' "3.9" ;;
+        *ndk32-include*) printf '%s\n' "3.2" ;;
+    esac
+}
+
+# Documented template wiring: C_INCL_NDK reaches the compiler through
+# C_INCL_ALL and C_FLAGS (ApolloCrossDev v1.0/v1.2), or directly via C_FLAGS.
+ndk_incl_feeds_flags() {
+    file=$1
+    active=$(sed 's/\r$//' "$file" | sed -n '/^[[:space:]]*#/d; p')
+    printf '%s\n' "$active" | grep -E '^[[:space:]]*C_FLAGS[[:space:]]*=' | grep -Fq '$(C_INCL_NDK)' && return 0
+    printf '%s\n' "$active" | grep -E '^[[:space:]]*C_INCL_ALL[[:space:]]*=' | grep -Fq '$(C_INCL_NDK)' || return 1
+    printf '%s\n' "$active" | grep -E '^[[:space:]]*C_FLAGS[[:space:]]*=' | grep -Fq '$(C_INCL_ALL)' || return 1
+    return 0
+}
+
+# AGENTS.md Target OS only when the value is concrete (no placeholder).
+# AmigaOS 3.9 wins as soon as it is listed; otherwise 3.2 / ApolloOS R10 -> 3.2.
+ndk_required_from_agents() {
+    file=$1
+    [ -f "$file" ] || return 0
+    line=$(sed 's/\r$//' "$file" | sed -n 's/^[-*][[:space:]]*\*\*Target OS:\*\*[[:space:]]*//p' | head -n 1)
+    [ -n "$line" ] || return 0
+    case $line in
+        *'<'*|*not\ set*|*Not\ set*) return 0 ;;
+    esac
+    has39=0
+    has32=0
+    case $line in
+        *3.9*) has39=1 ;;
+    esac
+    case $line in
+        *3.2*|*[Aa]pollo[Oo][Ss]*|*R10*) has32=1 ;;
+    esac
+    if [ $has39 = 1 ]; then
+        printf '%s\n' "3.9"
+    elif [ $has32 = 1 ]; then
+        printf '%s\n' "3.2"
+    fi
+}
+
+ndk_path_for() {
+    compiler_root=$1
+    version=$2
+    case $version in
+        3.9) printf '%s\n' "$compiler_root/m68k-amigaos/ndk39-include" ;;
+        3.2) printf '%s\n' "$compiler_root/m68k-amigaos/ndk32-include/Include_H" ;;
+    esac
+}
+
+ndk_note_absent_under() {
+    compiler_root=$1
+    path39=$(ndk_path_for "$compiler_root" "3.9")
+    path32=$(ndk_path_for "$compiler_root" "3.2")
+    absent_note=0
+    if [ ! -d "$path39" ]; then
+        echo "NOTE=documented NDK 3.9 directory is absent at $path39 (checked under $compiler_root); its use by the active build configuration was not established"
+        absent_note=1
+    fi
+    if [ ! -d "$path32" ]; then
+        echo "NOTE=documented NDK 3.2 directory is absent at $path32 (checked under $compiler_root); its use by the active build configuration was not established"
+        absent_note=1
+    fi
+    if [ $absent_note = 1 ] && [ -d "$compiler_root/m68k-amigaos/ndk-include" ]; then
+        echo "NOTE=m68k-amigaos/ndk-include exists under $compiler_root and is not a documented NDK substitute (toolchain/target-os-headers.md)"
+    fi
+}
+
+# Report documented NDK presence. PROBLEM only when the effective compiler
+# PREFIX and an active wired C_INCL_NDK requirement are both established.
+# Never treat ndk-include as OK.
+report_ndk() {
+    project=$1
+    acd_root=$2
+    makefile=$project/Makefile
+    agents=$project/AGENTS.md
+    compiler_root=""
+    required=""
+    required_how=""
+    has_makefile=0
+    [ -f "$makefile" ] && has_makefile=1
+
+    if [ $has_makefile = 1 ]; then
+        compiler_root=$(ndk_compiler_root_from_makefile "$makefile" "$project" "$acd_root")
+        required=$(ndk_required_from_makefile "$makefile")
+        if [ -n "$required" ]; then
+            if ndk_incl_feeds_flags "$makefile"; then
+                required_how="active C_INCL_NDK wired through C_INCL_ALL/C_FLAGS in the project Makefile"
+            else
+                echo "NOTE=project Makefile has C_INCL_NDK for documented NDK $required, but it is not shown to feed compilation flags through C_INCL_ALL and C_FLAGS (the ApolloCrossDev template shape). Not treating that NDK as an established build requirement. Do not substitute m68k-amigaos/ndk-include."
+                required=""
+                required_how=""
+            fi
+        fi
+    else
+        required=$(ndk_required_from_agents "$agents")
+        [ -n "$required" ] && required_how="Target OS in AGENTS.md"
+        # Skill default for a Makefile-free build is GCC-6.50-Dev under ACD_ROOT.
+        compiler_root=$acd_root/Compilers/GCC-6.50-Dev
+    fi
+
+    if [ -z "$compiler_root" ]; then
+        if [ -n "$required" ]; then
+            echo "NOTE=project requires documented NDK $required ($required_how), but could not establish the effective compiler PREFIX location from the Makefile (recognised shapes: \$(ACD_ROOT)/Compilers/GCC-6.50-Dev|Stable|Base with a resolvable ACD_ROOT, or \$(PWD)/../../Compilers/... when the project is two levels under ApolloCrossDev). Do not infer the path from the Dev/Stable/Base label alone, and do not substitute m68k-amigaos/ndk-include."
+        else
+            echo "NOTE=could not establish the effective compiler PREFIX location for NDK headers from the project Makefile. Recognised shapes are \$(ACD_ROOT)/Compilers/GCC-6.50-Dev|Stable|Base when ACD_ROOT resolves, or \$(PWD)/../../Compilers/... when the project is two levels under ApolloCrossDev. Documented paths are m68k-amigaos/ndk39-include (NDK 3.9) and m68k-amigaos/ndk32-include/Include_H (NDK 3.2). Do not substitute m68k-amigaos/ndk-include."
+        fi
+        return
+    fi
+
+    if [ -z "$required" ]; then
+        ndk_note_absent_under "$compiler_root"
+        return
+    fi
+
+    path=$(ndk_path_for "$compiler_root" "$required")
+    echo "NDK=$required"
+    echo "NDK_PATH=$path"
+    echo "NDK_COMPILER=$compiler_root"
+    if [ -d "$path" ]; then
+        echo "NDK_STATUS=present"
+        return
+    fi
+    echo "NDK_STATUS=absent"
+    msg="documented NDK $required directory is absent at $path (required by $required_how; checked under $compiler_root)"
+    if [ -d "$compiler_root/m68k-amigaos/ndk-include" ]; then
+        msg="$msg. m68k-amigaos/ndk-include is present there and is not a documented substitute"
+    else
+        msg="$msg. Do not substitute m68k-amigaos/ndk-include"
+    fi
+    problem "$msg"
+}
+
 if [ -n "$APOLLOCROSSDEV" ] && [ ! -d "$APOLLOCROSSDEV/Compilers" ]; then
     problem "APOLLOCROSSDEV=$APOLLOCROSSDEV has no Compilers folder; the Makefile uses it, so fix or unset it"
 fi
@@ -141,6 +351,8 @@ if [ -f "$project/Makefile" ]; then
     echo "MAKEFILE=$(sed -n 's/^# ApolloCrossDev Makefile Template //p' "$project/Makefile" | head -n 1)"
     report_build "$project/Makefile"
 fi
+
+report_ndk "$project" "$root"
 
 case $(uname) in Darwin) script=GCC-6.50-Dev-MacOS.sh ;; *) script=GCC-6.50-Dev-Linux.sh ;; esac
 updates=0
