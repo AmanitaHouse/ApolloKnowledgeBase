@@ -287,18 +287,21 @@ When the project has a Makefile, `find-acd.sh` prints `BUILD=` only for a
 command it has classified as non-uploading: `make compile`, or
 `make cleanbefore build`. If it prints `NOTE=` that no Make command can be
 recommended, the agent does not run make. Plain `make` and `make debug`
-upload on the documented templates. The agent runs those only when you ask.
-A `BUILD=` line does not clear a `PROBLEM=`.
+upload on v1.0 and earlier v1.2 templates; later v1.2 removed those upload
+recipes (`toolchain/project-makefile.md`). The agent runs plain `make` or
+`make debug` only when you ask. A `BUILD=` line does not clear a `PROBLEM=`.
 
 Header and flag choices come from `toolchain/`, not from memory. `find-acd.sh`
-checks the documented NDK directories from `toolchain/target-os-headers.md`
+checks the NDK directories the project Makefile names, as listed in
+`toolchain/target-os-headers.md`
 (`m68k-amigaos/ndk39-include`, `m68k-amigaos/ndk32-include/Include_H`) under
 the effective Makefile `PREFIX` when that location and an active wired
 `C_INCL_NDK` can be established without evaluating Make. A missing required
 directory is `PROBLEM=`; uncertainty about the compiler path or flag wiring,
 or an absent directory whose use is not established, is `NOTE=`.
-`m68k-amigaos/ndk-include` is not a substitute. If the documented NDK
-directory is not in your ApolloCrossDev tree, the build is not described as
+`m68k-amigaos/ndk-include` is not a substitute. The documented installer
+does not create the version-specific Makefile paths. If the required NDK
+directory is not under the effective `PREFIX`, the build is not described as
 successful.
 
 ## Lessons
