@@ -135,14 +135,19 @@ the workarounds the pitfalls document for an unverified binary. Name them
 and let the user decide. Do not present a build with the standard flags on
 an unverified binary as free of these defects.
 
-Confirmed means the installed binary, not the checkout. Use the install
-log that applied the patch, or assembly of the pitfall's reproduction.
-Compiling without an error is not confirmation. For the stack-slot defect,
-read the operand after the call: `add.l d2,([76,sp])` is the corrected
-form in pull request #28, and `add.l d2,([56,sp])` while that call's 20
-bytes are still pushed is the bug. An older binary that keeps the pointer
+Confirmed means the installed binary, not the checkout. A patch file in
+the checkout, a merged pull request, or a documented workaround is not
+that confirmation. Use the install log that applied the patch, or
+assembly of the pitfall's reproduction. Compiling without an error is not
+confirmation, and neither is hardware success alone. For the stack-slot
+defect, `toolchain/pitfalls/gcc-double-indirect-stack-slot.md` records
+`add.l d2,([56,sp])` after the call while that call's 20 bytes are still
+pushed as the bug, and `move.l (76,sp),a0` under `-fno-double-indirect`
+as the measured workaround (no memory-indirect operand). Do not treat any
+`([N,sp])` form, including a guessed `([76,sp])` update, as proof that
+pull request #28 is in the binary. An older binary that keeps the pointer
 in a register and never emits `([N,sp])` for that update has not been
-shown to contain the reload fix.
+shown to contain the reload fix either.
 
 ## 3. Build
 
@@ -200,7 +205,7 @@ code around a symptom, check whether it is a known trap:
 |---|---|
 | Internal compiler error, or wrong code that looks like a compiler bug | First an `UPDATE=compiler` from step 2: the fix may only need a reinstall. Then `toolchain/compiler-variants.md` (bug table: fixed only in a reinstalled GCC-6.50-Dev) and the pitfall it names |
 | `btst` on memory with a bit number outside 0 to 7 | `toolchain/pitfalls/gcc-btst-memory-bit-number.md`. Section 2: the binary is fixed only when it was built with pull request #26 |
-| A pointer argument updated through `([N,sp])` after a call | `toolchain/pitfalls/gcc-double-indirect-stack-slot.md`. Section 2: the reload fix is pull request #28, and the standard flags are the affected configuration on an unreinstalled GCC-6.50-Dev |
+| A pointer argument updated through `([N,sp])` after a call | `toolchain/pitfalls/gcc-double-indirect-stack-slot.md` (defect and `-fno-double-indirect` workaround). Section 2: ApolloCrossDev names `reload-ind-equiv-offset-fix.patch` as pull request #28; that names a source patch, not a verified binary. Standard flags on an unreinstalled GCC-6.50-Dev remain the affected configuration |
 | Floats wrong, or link errors about float functions | `toolchain/pitfalls/float-settings-mismatch.md` |
 | `sprintf`, headers or libnix surprises | `toolchain/pitfalls/libnix-and-header-traps.md` |
 | Other GCC oddities | `toolchain/pitfalls/gcc-misc-traps.md` |
