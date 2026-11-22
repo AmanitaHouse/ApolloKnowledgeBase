@@ -217,10 +217,17 @@ them. Do not treat these manifests as a publication submission.
   The rest may be letters, digits, `-`, or `_`. When the directory name
   does not comply, the agent passes `--name` and does not rename or move
   the directory.
-- **Guided** also asks for the name, kind, execution mode (`os-friendly` o
-  `os-takeover`), and languages. It checks ApolloCrossDev, writes a Makefile
-  from that install's template, writes `main.c`, and builds with the command
-  that template was classified as non-uploading.
+- **Guided** also asks for the name, kind, execution mode (`os-friendly` or
+  `os-takeover`), and languages (`C`, `C++`, `assembler`, or a combination).
+  It checks ApolloCrossDev, writes a Makefile from that install's template,
+  writes the C starter `main.c`, and builds with the command that template
+  was classified as non-uploading. C++ selects the template `g++` line when
+  that line exists. Assembler is recorded, and the notes say whether the
+  template discovers `.s` files. Guided setup does not write a C++ or
+  assembler starter. The installed v1.0 template and the documented v1.2
+  template collect `.c` and `.s` only, not `.cpp`. A non-uploading Make
+  classification does not verify C++ or assembler. An empty or unknown
+  language is rejected before any project file is written.
 
 Existing files are left in place. The agent shows you a proposed change and
 waits.
@@ -419,8 +426,14 @@ list fails this check. A `source` of `.` or `./` fails it as well.
 when the `claude` command is absent. That line is not a passing plugin load.
 
 `check_shared_workflows.py` runs the shared entry points (resolver,
-scaffolding, a missing ApolloCrossDev, the lesson gate) in a temporary
-directory. It does not load either editor. When ApolloCrossDev is absent it
-prints `RESULT guided-build NOT VERIFIED` and still exits 0. It prints
-`RESULT guided-build PASS` only after a real compile with no errors and no
-warnings. It never runs `make` or `make debug`.
+scaffolding, a missing ApolloCrossDev, the lesson gate, build-command
+classification, and language-selection fixtures) in a temporary directory.
+It does not load either editor. The default invocation is fixture-only: it
+does not run Make or the compiler, and it prints
+`RESULT guided-build SKIPPED`. Pass `--run-toolchain` for the authorised
+real-toolchain probe. That probe may run a verified non-uploading Make
+target such as `make compile` or `make cleanbefore build`, and a compiler
+smoke test when the documented NDK path is absent. It still never runs
+`make` or `make debug` as those upload. `RESULT guided-build PASS` appears
+only after that opt-in probe finishes a real compile with no errors and no
+warnings.

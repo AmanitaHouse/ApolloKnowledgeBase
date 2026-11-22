@@ -37,16 +37,17 @@ The resolver lives in `tools/` at the root of this skill's repository (the
 installed `akb` plugin, in Claude Code or Cursor, or an AKB checkout).
 From step 2 on, an initialized `ApolloKnowledgeBase/` submodule is that
 root (`KB_SOURCE=submodule`). Before the submodule exists, the same
-command reports the bundled plugin (`KB_SOURCE=plugin`); use it fo
+command reports the bundled plugin (`KB_SOURCE=plugin`); use it for
 `KB templates/repo/AGENTS.md` and the other template files. Skill assets
 that are not in the submodule yet are next to this file: `assets/` and
 `scripts/write-project-files.sh`. The toolchain check is
 `KB skills/apollo-build/scripts/find-acd.sh`. If the resolver prints
 `PROBLEM=`, stop and follow every `RECOVERY=` line. Do not guess paths.
 
-**Which repository the submodule tracks.** The default is
-`https://github.com/ApolloTeam-dev/ApolloKnowledgeBase`. Say that once. If
-the developer asks for another clone URL, use that instead. Do not
+**Which repository the submodule tracks.** On this fork the default is
+`https://github.com/AmanitaHouse/ApolloKnowledgeBase`. Say that once. If
+the developer asks for the original Apollo Team repository, use
+`https://github.com/ApolloTeam-dev/ApolloKnowledgeBase` instead. Do not
 change the remote afterwards unless they ask.
 
 ## 0. Guided or basic setup
@@ -87,9 +88,18 @@ Ask these four in one go, and suggest the defaults in brackets:
    direct 68080 and SAGA access, OS restored on exit) or `os-friendly`
    (applications and tools: OS calls). Explain the difference if asked; it
    is in `KB AGENTS.md` section 1 and `KB os/os-takeover.md`.
-4. **Which language(s)**: C, C++ and/or assembler [C].
+4. **Which language(s)**: C, C++ and/or assembler [C]. Pass that answer as
+   `--languages`. The script accepts those three words in any case, with
+   surrounding whitespace ignored. Combinations may be separated by commas,
+   plus signs, or the words `and`, `or`, and `and/or`. A plus sign inside
+   `C++` is not a separator. It records them as `C`, `C++`, and `assembler`.
+   It does not treat a string as C++ just because the characters C++ occur
+   in it, and it does not accept `cpp`, `assembly`, `asm`, or `68080 assembly`.
+   An empty value or any other name prints `PROBLEM=` and writes no project
+   file. Stop, show that line, and ask for one of the three words. Do not
+   write the files by hand and do not substitute C.
 
-Don't ask about the rest; every new project gets these, and the develope
+Don't ask about the rest; every new project gets these, and the developer
 can change them later in `AGENTS.md`:
 
 | Setting | Value |
@@ -136,7 +146,7 @@ before the selected template has been classified.
 - **`AGENTS.md`** (Cursor and most other agents): from
   `KB templates/repo/AGENTS.md`, placeholders filled, HTML comments removed.
 - **`.cursor/rules/apollo-v4.mdc`** (Cursor): a short project rule that
-  points at `ApolloKnowledgeBase/AGENTS.md` and the three akb skills. Curso
+  points at `ApolloKnowledgeBase/AGENTS.md` and the three akb skills. Cursor
   does not need `.claude/settings.json`.
 - **`CLAUDE.md` and `.claude/settings.json`** (Claude Code only): optional.
   The script writes them unless you pass `--no-claude`. Skip them when the
@@ -199,7 +209,7 @@ The same run writes the Makefile. It changes only:
 |---|---|
 | `PROJECT_NAME` | the name |
 | `C_INCL_NDK` | the `ndk39-include` line: AmigaOS 3.9 is a target, so a function that 3.9 lacks gives a compile error instead of a crash on 3.9 (`KB toolchain/target-os-headers.md`) |
-| `C_COMPILER` | the `m68k-amigaos-g++` line for C++; the template does not collect `.cpp` files, so add them as `KB toolchain/project-makefile.md` says |
+| `C_COMPILER` | when the request includes C++, the commented `m68k-amigaos-g++` line, if that pair is in the template. If the line is absent, `C_COMPILER` stays as it is and the script says so separately. The installed v1.0 template and the documented v1.2 template collect `.c` and `.s` only. Add `.cpp` files as `KB toolchain/project-makefile.md` says before anyone claims a C++ build. Switching the compiler does not verify C++ |
 
 It leaves `APOLLOLIB`, `C_OPTIONS` and `S_FLAGS` as they are. If the
 template has no `ndk39-include` line, it says so and does not invent one.
@@ -218,25 +228,59 @@ The takeover programs leave the display takeover open on purpose: the KB
 doesn't document it yet (`KB os/os-takeover.md`). Tell the user, and don't
 fill it in from general Amiga knowledge.
 
+That C-style `main.c` is the only starter, including when the request is
+C++ only, assembler only, or a combination. Do not write a `.cpp` file, a
+`.s` file, or a 68080 assembler entry point, and do not change `S_FLAGS`.
+It is not a dedicated C++ starter and not an assembler program. The
+ApolloCrossDev template compiles sources with `$(C_COMPILER) -c $(C_FLAGS)`
+and does not pass `-x`, so when `C_COMPILER` is `m68k-amigaos-g++`, `g++`
+may treat `main.c` as C++ source. That still does not verify C++ project
+generation or compilation, and the template still does not collect `.cpp`
+files unless its file lists are changed as
+`KB toolchain/project-makefile.md` describes.
+
+When C++ or assembler was requested, the script prints `NOTE=LANGUAGE`
+lines and, in a new `AGENTS.md`, a "Guided setup language support" section.
+Repeat both to the developer. The Languages line records the request. It is
+not evidence that the language was implemented. The installed ApolloCrossDev
+v1.0 template and the documented v1.2 template collect project `.c` and `.s`
+files and do not collect `.cpp` files. Trust the notes for the template that
+was supplied: they say whether `.cpp` sources are collected, whether `.s`
+files are discovered, and whether `m68k-amigaos-g++` was selected. A missing
+compiler-selection line is a separate note. C alone prints none of these
+notes.
+
+A non-uploading Make classification does not verify C++ project generation,
+C++ compilation, or an assembler program. Do not describe the result as a
+verified C++ or assembler project.
+
 It also copies `assets/gitignore` to `.gitignore`.
 
 ## 7. Build it (guided setup)
 
-Build as the apollo-build skill describes (KB skills/apollo-build/SKILL.md).
-Run the command in the project's AGENTS.md only when that file names
-make compile or make cleanbefore build. Those are the commands this
+Build as the apollo-build skill describes (`KB skills/apollo-build/SKILL.md`).
+Run the command in the project's `AGENTS.md` only when that file names
+`make compile` or `make cleanbefore build`. Those are the commands this
 script documents after classifying the template. If the Build and test
-section does not name one of them, do not run make. Do not run make or
-make debug unless the developer asks. The build must end with no errors
-and no warnings before you continue.
+section does not name one of them, do not run make. Do not run `make` or
+`make debug` unless the developer asks. The build must end with no errors
+and no warnings before you continue. A successful build of `main.c` is a
+build of that C-style starter. When the language notes say C++ or assembler
+was not generated, do not report the build as a verified C++ or assembler
+program, even if `C_COMPILER` is `m68k-amigaos-g++` and `g++` treats the
+`.c` file as C++.
 
-## 8. Hand ove
+## 8. Hand over
 
 - Show the user the files you made and, for a guided setup, the build
   result. Never claim the build succeeded unless you ran it and it printed
-  no errors and no warnings.
+  no errors and no warnings. When C++ or assembler was requested, show the
+  `NOTE=LANGUAGE` lines as well. Do not say that language was implemented,
+  generated, or verified. `make compile` or `make cleanbefore build` being
+  classified as non-uploading is a statement about upload safety, not about
+  C++ or assembler support.
 - Offer a first commit; commit only when they agree.
-- Tell them how to work from here: open the project folder in Cursor (o
+- Tell them how to work from here: open the project folder in Cursor (or
   Claude Code). Cursor reads `AGENTS.md` and `.cursor/rules/apollo-v4.mdc`
   and, with the akb plugin installed, the three skills. Claude Code uses
   `CLAUDE.md` and `.claude/settings.json` when those files were written.

@@ -5,9 +5,15 @@ Structural failures exit 1. A missing shell or a missing ApolloCrossDev
 install is RESULT ... NOT VERIFIED and does not fail the run. NOT VERIFIED
 is not a successful compile and not a loaded plugin session.
 
+The default invocation is fixture-based. It classifies Makefiles and runs
+the shared entry points without Make and without the compiler. Pass
+--run-toolchain for the authorised real-toolchain probe that may run a
+verified non-uploading Make target and a compiler smoke test.
+
 The entry points are the POSIX sh scripts in skills/*/scripts/. They call
 the single Python implementation in tools/.
 """
+import argparse
 import os
 import re
 import shutil
@@ -1537,9 +1543,694 @@ def check_toolchain():
         shutil.rmtree(project, ignore_errors=True)
 
 
-def main():
+CPP_STARTER = (
+    "NOTE=LANGUAGE C++: guided setup generates a C-style main.c starter, "
+    "not a dedicated C++ starter. When compiled with g++, it may be treated as C++ source."
+)
+CPP_NO_COLLECT = (
+    "NOTE=LANGUAGE C++: this Makefile template does not collect .cpp sources. "
+    "Add .cpp files to the file lists as toolchain/project-makefile.md describes "
+    "before claiming a C++ build."
+)
+CPP_COLLECTS = (
+    "NOTE=LANGUAGE C++: this Makefile template collects .cpp sources. "
+    "Guided setup still does not write a dedicated C++ starter."
+)
+CPP_SELECTED = (
+    "NOTE=LANGUAGE C++: C_COMPILER was switched to the template m68k-amigaos-g++ line. "
+    "That switch does not verify C++ project generation or compilation, and a "
+    "non-uploading Make classification is not that verification."
+)
+CPP_NOT_VERIFIED = (
+    "NOTE=LANGUAGE C++: C++ project generation and compilation are not verified. "
+    "A non-uploading Make classification is not that verification."
+)
+CPP_NO_TEMPLATE_SOURCES = (
+    "NOTE=LANGUAGE C++: no Makefile template was supplied, so .cpp sources are not collected. "
+    "Add .cpp files to the file lists as toolchain/project-makefile.md describes "
+    "before claiming a C++ build."
+)
+CPP_NO_TEMPLATE_COMPILER = (
+    "NOTE=LANGUAGE C++: no Makefile template was supplied, so the m68k-amigaos-g++ "
+    "line is absent and C_COMPILER was not switched."
+)
+ASM_STARTER = (
+    "NOTE=LANGUAGE assembler: guided setup does not supply an assembler starter. "
+    "main.c is the C starter, not an assembler program."
+)
+ASM_DISCOVERS = (
+    "NOTE=LANGUAGE assembler: this Makefile template discovers .s files. "
+    "No assembler source was written and S_FLAGS was not changed."
+)
+ASM_DOES_NOT = (
+    "NOTE=LANGUAGE assembler: this Makefile template does not discover .s files. "
+    "No .s discovery was added and S_FLAGS was not changed."
+)
+ASM_NO_TEMPLATE = (
+    "NOTE=LANGUAGE assembler: no Makefile template was supplied, so .s discovery "
+    "was not established. S_FLAGS was not changed."
+)
+GPP_LINE_ABSENT = (
+    "NOTE=Makefile template has no commented m68k-amigaos-g++ line; "
+    "C_COMPILER was left unchanged"
+)
+CXX_READY = [CPP_STARTER, CPP_NO_COLLECT, CPP_SELECTED]
+ASM_READY = [ASM_STARTER, ASM_DISCOVERS]
+CAVEAT_CXX = (
+    "# A non-uploading Make classification does not verify "
+    "C++ project generation or compilation. The only starter is main.c."
+)
+CAVEAT_ASM = (
+    "# A non-uploading Make classification does not verify "
+    "that an assembler program was generated. The only starter is main.c."
+)
+EMPTY_LANGUAGE = (
+    "guided setup needs --languages with one or more of C, C++, and assembler "
+    "(for example: C). The value was empty."
+)
+EMPTY_ENTRY = (
+    "guided setup language has an empty entry. Pass one or more of "
+    "C, C++, and assembler, separated by commas, plus signs, or the words "
+    "and, or, and and/or (for example: C, assembler)."
+)
+
+
+def reject_language(token):
+    return (
+        "guided setup does not recognize "
+        + repr(token)
+        + ". Pass one or more of C, C++, and assembler, separated by commas, "
+        "plus signs, or the words and, or, and and/or. "
+        "A value is not C++ merely because it contains C++."
+    )
+
+
+def with_gpp_line(text):
+    old = "C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc\n"
+    if text.count(old) != 1:
+        raise AssertionError("fixture does not have one gcc C_COMPILER line")
+    return text.replace(
+        old,
+        old + "# C_COMPILER = $(PREFIX)/bin/m68k-amigaos-g++\n",
+        1,
+    )
+
+
+V10_SHAPE = lines_of("""
+# ApolloCrossDev Makefile Template v1.0
+PROJECT_NAME = probe
+C_COMPILER	= $(PREFIX)/bin/m68k-amigaos-gcc
+# C_COMPILER	= $(PREFIX)/bin/m68k-amigaos-g++
+C_FILES = $(wildcard $(C_SOURCEDIR)/*.c)
+S_FILES = $(wildcard $(S_SOURCEDIR)/*.s)
+O_FILES = $(patsubst $(C_SOURCEDIR)/%.c,$(C_OBJECTDIR)/%.o,$(C_FILES)) $(patsubst $(S_SOURCEDIR)/%.s,$(S_OBJECTDIR)/%.o,$(S_FILES))
+""")
+
+V12_SHAPE = lines_of("""
+# ApolloCrossDev Makefile Template v1.2
+PROJECT_NAME = probe
+C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc
+# C_COMPILER = $(PREFIX)/bin/m68k-amigaos-g++
+C_FILES = $(wildcard $(C_SOURCEDIR)/*.c)
+S_FILES = $(wildcard $(S_SOURCEDIR)/*.s)
+LIB_C_FILES = $(if $(APOLLOLIB),$(wildcard $(APOLLOLIB)/*.c))
+LIB_S_FILES = $(if $(APOLLOLIB),$(wildcard $(APOLLOLIB)/*.s))
+APP_O_FILES = $(patsubst $(C_SOURCEDIR)/%.c,$(C_OBJECTDIR)/%.o,$(C_FILES)) $(patsubst $(S_SOURCEDIR)/%.s,$(S_OBJECTDIR)/%.o,$(S_FILES))
+""")
+
+NO_S_SHAPE = lines_of("""
+# ApolloCrossDev Makefile Template v1.2
+PROJECT_NAME = probe
+C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc
+# C_COMPILER = $(PREFIX)/bin/m68k-amigaos-g++
+C_FILES = $(wildcard $(C_SOURCEDIR)/*.c)
+LIB_S_FILES = $(if $(APOLLOLIB),$(wildcard $(APOLLOLIB)/*.s))
+""")
+
+CPP_COLLECT_SHAPE = lines_of("""
+# ApolloCrossDev Makefile Template v1.2
+PROJECT_NAME = probe
+C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc
+# C_COMPILER = $(PREFIX)/bin/m68k-amigaos-g++
+C_FILES = $(wildcard $(C_SOURCEDIR)/*.c)
+CPP_FILES = $(wildcard $(C_SOURCEDIR)/*.cpp)
+S_FILES = $(wildcard $(S_SOURCEDIR)/*.s)
+""")
+
+CXX_BLOCK = "\n".join([
+    "Guided setup language support:",
+    "",
+    "- The Languages line records the request. It does not mean a C++ program was generated.",
+    "- Guided setup generates a C-style `main.c` starter, not a dedicated C++ starter. When compiled with `g++`, it may be treated as C++ source.",
+    "- This Makefile template does not collect `.cpp` sources. Before a C++ build can be claimed, add `.cpp` files to the file lists as `ApolloKnowledgeBase/toolchain/project-makefile.md` describes.",
+    "- `C_COMPILER` uses the template `m68k-amigaos-g++` line. That switch does not verify C++ project generation or compilation. A non-uploading Make classification is not that verification.",
+])
+
+ASM_BLOCK = "\n".join([
+    "Guided setup language support:",
+    "",
+    "- The Languages line records the request. It does not mean an assembler program was generated.",
+    "- Guided setup does not supply an assembler starter. `main.c` is the C starter, not an assembler program.",
+    "- This Makefile template discovers `.s` files. No assembler source was written and `S_FLAGS` was not changed.",
+])
+
+ASM_MISSING_BLOCK = "\n".join([
+    "Guided setup language support:",
+    "",
+    "- The Languages line records the request. It does not mean an assembler program was generated.",
+    "- Guided setup does not supply an assembler starter. `main.c` is the C starter, not an assembler program.",
+    "- This Makefile template does not discover `.s` files. No `.s` discovery was added and `S_FLAGS` was not changed.",
+])
+
+
+def language_note_lines(output):
+    return [line for line in output.splitlines() if line.startswith("NOTE=LANGUAGE")]
+
+
+def language_section(text):
+    marker = "Guided setup language support:\n"
+    start = text.find(marker)
+    if start < 0:
+        return ""
+    rest = text[start:]
+    end = rest.find("\n## ")
+    if end < 0:
+        return rest.rstrip("\n")
+    return rest[:end].rstrip("\n")
+
+
+def source_paths(project):
+    found = []
+    for dirpath, _, files in os.walk(project):
+        for name in files:
+            if os.path.splitext(name)[1].lower() in {".c", ".cpp", ".cc", ".s", ".asm"}:
+                found.append(os.path.relpath(os.path.join(dirpath, name), project).replace("\\", "/"))
+    return sorted(found)
+
+
+def read_text(path):
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def run_language(languages, template=None, include_languages=True, prep=None, template_path=None):
+    root = tempfile.mkdtemp(prefix="akb-lang-")
+    project = os.path.join(root, "proj")
+    os.makedirs(project)
+    if prep:
+        prep(project)
+    args = [
+        "tools/write_project_files.py",
+        "--project", project,
+        "--setup", "guided",
+        "--name", "probe1",
+        "--what", "A language probe",
+        "--kind", "tool",
+        "--execution-mode", "os-friendly",
+        "--no-claude",
+    ]
+    if include_languages:
+        args.extend(["--languages", languages])
+    if template is not None:
+        path = os.path.join(root, "template.mk")
+        with open(path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(template)
+        args.extend(["--makefile-template", path])
+    elif template_path is not None:
+        args.extend(["--makefile-template", template_path])
+    result = run_py(args)
+    return root, project, result
+
+
+def assert_problem(label, languages, problem, prep=None, template_path=None):
+    root, project, result = run_language(
+        languages, prep=prep, template_path=template_path,
+    )
+    try:
+        expected = "PROBLEM=" + problem
+        if result.returncode == 0 or result.stdout.strip() != expected:
+            fail(
+                f"{label} rejection was {result.returncode}:\n{result.stdout!r}\n"
+                f"expected:\n{expected!r}"
+            )
+        if "CREATED=" in result.stdout or "SUMMARY" in result.stdout:
+            fail(f"{label} continued after PROBLEM=:\n{result.stdout}")
+        if prep is None and os.listdir(project):
+            fail(f"{label} wrote {os.listdir(project)} before rejection")
+        return project
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def assert_c_starter(label, project, template):
+    sources = source_paths(project)
+    if sources != ["main.c"]:
+        fail(f"{label} sources were {sources}")
+        return False
+    main_c = read_text(os.path.join(project, "main.c"))
+    if "int main(void)" not in main_c or "@" in main_c:
+        fail(f"{label} main.c is not the C starter")
+        return False
+    makefile = read_text(os.path.join(project, "Makefile"))
+    if "S_FLAGS" in makefile and "S_FLAGS" not in template:
+        fail(f"{label} invented S_FLAGS")
+        return False
+    for name in ("C_FILES", "S_FILES", "LIB_C_FILES", "LIB_S_FILES", "CPP_FILES", "O_LINKER"):
+        before = [line for line in template.splitlines() if name in line]
+        after = [line for line in makefile.splitlines() if name in line]
+        if before != after:
+            fail(f"{label} changed {name}:\n{before!r}\n{after!r}")
+            return False
+    if "PROJECT_NAME = probe1" not in makefile:
+        fail(f"{label} did not set PROJECT_NAME")
+        return False
+    return True
+
+
+def assert_agents_language(label, project, canonical, section, caveat, command):
+    text = read_text(os.path.join(project, "AGENTS.md"))
+    if f"- **Languages:** {canonical}" not in text:
+        fail(f"{label} Languages line is not {canonical!r}")
+        return False
+    if language_section(text) != section:
+        fail(f"{label} guidance:\n{language_section(text)!r}\nexpected:\n{section!r}")
+        return False
+    if caveat not in text:
+        fail(f"{label} build section omitted the language caveat")
+        return False
+    if "C++ compilation verified" in text or "assembler program was generated." in text and "does not verify" not in text:
+        fail(f"{label} presented the language as verified")
+        return False
+    commands = uncommented_make_commands(text)
+    if commands != command:
+        fail(f"{label} documented {commands}, expected {command}")
+        return False
+    return True
+
+
+def check_language_selection():
+    """Guided language diagnostics. This never runs make."""
+    before = len(errors)
+    v12_lang = with_gpp_line(V12_COMPILE)
+    v10_lang = with_gpp_line(V10_CLEANBEFORE)
+    expect_command("v1.2 compile", V12_COMPILE, "make compile")
+    expect_command("v1.0 cleanbefore", V10_CLEANBEFORE, "make cleanbefore build")
+    expect_command("v1.2 language fixture", v12_lang, "make compile")
+    expect_command("v1.0 language fixture", v10_lang, "make cleanbefore build")
+
+    def finish(root):
+        shutil.rmtree(root, ignore_errors=True)
+
+    # 1. Default C, including the omitted --languages default.
+    for label, include in (("default-c", False), ("explicit-c", True)):
+        root, project, result = run_language("C", v12_lang, include_languages=include)
+        try:
+            if result.returncode != 0:
+                fail(f"{label} failed:\n{result.stdout}")
+                continue
+            if language_note_lines(result.stdout):
+                fail(f"{label} printed language warnings:\n{result.stdout}")
+            if "NOTE=LANGUAGE" in result.stdout or GPP_LINE_ABSENT in result.stdout:
+                fail(f"{label} warned about C++:\n{result.stdout}")
+            agents = read_text(os.path.join(project, "AGENTS.md"))
+            if language_section(agents) or "does not verify" in agents:
+                fail(f"{label} added C++ or assembler guidance")
+            if uncommented_make_commands(agents) != ["make compile"]:
+                fail(f"{label} changed the safe command")
+            makefile = read_text(os.path.join(project, "Makefile"))
+            renamed = v12_lang.replace("PROJECT_NAME = probe\n", "PROJECT_NAME = probe1\n", 1)
+            if makefile != renamed:
+                fail(f"{label} changed more than PROJECT_NAME")
+            if not assert_c_starter(label, project, v12_lang):
+                continue
+            verdict = classify_build.classify_text(makefile, "Makefile")
+            if verdict.command != "make compile" or verdict.status != "verified-non-uploading":
+                fail(f"{label} reclassified the safe target as {verdict.status} {verdict.command}")
+        finally:
+            finish(root)
+
+    # 2. C++ only, on a template that can select g++ and does not collect .cpp.
+    root, project, result = run_language("  c++  ", v12_lang)
+    try:
+        if result.returncode != 0:
+            fail(f"cxx-only failed:\n{result.stdout}")
+        elif language_note_lines(result.stdout) != CXX_READY:
+            fail(f"cxx-only notes:\n{language_note_lines(result.stdout)!r}")
+        elif GPP_LINE_ABSENT in result.stdout:
+            fail("cxx-only reported a missing g++ line that was present")
+        else:
+            assert_c_starter("cxx-only", project, v12_lang)
+            assert_agents_language("cxx-only", project, "C++", CXX_BLOCK, CAVEAT_CXX, ["make compile"])
+            makefile = read_text(os.path.join(project, "Makefile"))
+            if "\nC_COMPILER = $(PREFIX)/bin/m68k-amigaos-g++\n" not in "\n" + makefile:
+                fail("cxx-only did not activate m68k-amigaos-g++")
+            if "\n# C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc\n" not in "\n" + makefile:
+                fail("cxx-only left m68k-amigaos-gcc active")
+            verdict = classify_build.classify_text(makefile, "Makefile")
+            if verdict.command != "make compile" or verdict.status != "verified-non-uploading":
+                fail(f"cxx-only safe command changed to {verdict.status} {verdict.command}")
+            if "verified C++" in result.stdout or "verified C++" in read_text(os.path.join(project, "AGENTS.md")):
+                fail("cxx-only marked C++ verified")
+    finally:
+        finish(root)
+
+    # Compiler-selection line absent: reported separately, and C++ stays unverified.
+    root, project, result = run_language("C++", V12_COMPILE)
+    try:
+        if result.returncode != 0:
+            fail(f"cxx-no-g++-line failed:\n{result.stdout}")
+        else:
+            expected = [CPP_STARTER, CPP_NO_COLLECT, CPP_NOT_VERIFIED]
+            if language_note_lines(result.stdout) != expected:
+                fail(f"cxx-no-g++-line notes:\n{language_note_lines(result.stdout)!r}")
+            if GPP_LINE_ABSENT not in result.stdout:
+                fail(f"cxx-no-g++-line did not report the missing compiler line:\n{result.stdout}")
+            if CPP_SELECTED in result.stdout:
+                fail("cxx-no-g++-line claimed g++ was selected")
+            makefile = read_text(os.path.join(project, "Makefile"))
+            if makefile != V12_COMPILE.replace("PROJECT_NAME = probe\n", "PROJECT_NAME = probe1\n", 1):
+                fail("cxx-no-g++-line changed C_COMPILER or another line")
+            agents = read_text(os.path.join(project, "AGENTS.md"))
+            if "no commented `m68k-amigaos-g++` line" not in agents:
+                fail("cxx-no-g++-line guidance did not report the missing line separately")
+            if "C++ project generation and compilation are not verified." not in agents:
+                fail("cxx-no-g++-line guidance treated the safe target as C++ verification")
+    finally:
+        finish(root)
+
+    # No template: the missing compiler line is its own note, and main.c is still C.
+    root, project, result = run_language("C++")
+    try:
+        if result.returncode != 0:
+            fail(f"cxx-no-template failed:\n{result.stdout}")
+        else:
+            expected = [CPP_STARTER, CPP_NO_TEMPLATE_SOURCES, CPP_NO_TEMPLATE_COMPILER, CPP_NOT_VERIFIED]
+            if language_note_lines(result.stdout) != expected:
+                fail(f"cxx-no-template notes:\n{language_note_lines(result.stdout)!r}")
+            if os.path.exists(os.path.join(project, "Makefile")):
+                fail("cxx-no-template wrote a Makefile")
+            agents = read_text(os.path.join(project, "AGENTS.md"))
+            if uncommented_make_commands(agents) or "make compile" in agents:
+                fail("cxx-no-template documented a make command")
+            if "m68k-amigaos-g++` line is absent" not in agents:
+                fail("cxx-no-template did not report the absent compiler line")
+            if source_paths(project) != ["main.c"]:
+                fail(f"cxx-no-template sources were {source_paths(project)}")
+    finally:
+        finish(root)
+
+    # 3. C and C++. Canonical spelling, same C++ limits, C starter kept.
+    root, project, result = run_language("c And   C++", v12_lang)
+    try:
+        if result.returncode != 0:
+            fail(f"c-and-cxx failed:\n{result.stdout}")
+        elif language_note_lines(result.stdout) != CXX_READY:
+            fail(f"c-and-cxx notes:\n{language_note_lines(result.stdout)!r}")
+        else:
+            assert_agents_language(
+                "c-and-cxx", project, "C, C++", CXX_BLOCK, CAVEAT_CXX, ["make compile"],
+            )
+            assert_c_starter("c-and-cxx", project, v12_lang)
+            if ASM_STARTER in result.stdout:
+                fail("c-and-cxx invented an assembler warning")
+    finally:
+        finish(root)
+
+    # 4. Assembler only. .s discovery is reported; main.c is not the assembler program.
+    root, project, result = run_language("  Assembler  ", v12_lang)
+    try:
+        if result.returncode != 0:
+            fail(f"asm-only failed:\n{result.stdout}")
+        elif language_note_lines(result.stdout) != ASM_READY:
+            fail(f"asm-only notes:\n{language_note_lines(result.stdout)!r}")
+        else:
+            assert_agents_language(
+                "asm-only", project, "assembler", ASM_BLOCK, CAVEAT_ASM, ["make compile"],
+            )
+            makefile = read_text(os.path.join(project, "Makefile"))
+            renamed = v12_lang.replace("PROJECT_NAME = probe\n", "PROJECT_NAME = probe1\n", 1)
+            if makefile != renamed:
+                fail("asm-only changed the compiler, S_FLAGS, or source lists")
+            if "\n# C_COMPILER = $(PREFIX)/bin/m68k-amigaos-g++\n" not in "\n" + makefile:
+                fail("asm-only selected g++")
+            assert_c_starter("asm-only", project, v12_lang)
+            if CPP_STARTER in result.stdout:
+                fail("asm-only invented a C++ warning")
+    finally:
+        finish(root)
+
+    # 5. C and assembler.
+    root, project, result = run_language("c,   assembler", v12_lang)
+    try:
+        if result.returncode != 0:
+            fail(f"c-and-asm failed:\n{result.stdout}")
+        elif language_note_lines(result.stdout) != ASM_READY:
+            fail(f"c-and-asm notes:\n{language_note_lines(result.stdout)!r}")
+        else:
+            assert_agents_language(
+                "c-and-asm", project, "C, assembler", ASM_BLOCK, CAVEAT_ASM, ["make compile"],
+            )
+            assert_c_starter("c-and-asm", project, v12_lang)
+    finally:
+        finish(root)
+
+    # C++ and assembler together keep both diagnostics.
+    both_notes = CXX_READY + ASM_READY
+    both_caveat = (
+        "# A non-uploading Make classification does not verify "
+        "C++ project generation or compilation, or that an assembler program was generated. "
+        "The only starter is main.c."
+    )
+    root, project, result = run_language("assembler and/or C++", v12_lang)
+    try:
+        if result.returncode != 0:
+            fail(f"cxx-and-asm failed:\n{result.stdout}")
+        elif language_note_lines(result.stdout) != both_notes:
+            fail(f"cxx-and-asm notes:\n{language_note_lines(result.stdout)!r}")
+        else:
+            agents = read_text(os.path.join(project, "AGENTS.md"))
+            if "- **Languages:** C++, assembler" not in agents:
+                fail("cxx-and-asm did not canonicalize language order")
+            if both_caveat not in agents:
+                fail("cxx-and-asm caveat was missing or overstated")
+            if "not a dedicated C++ starter" not in agents or "not an assembler program" not in agents:
+                fail("cxx-and-asm guidance presented main.c as the requested language")
+            if "When compiled with `g++`, it may be treated as C++ source." not in agents:
+                fail("cxx-and-asm guidance omitted the g++ language treatment note")
+            assert_c_starter("cxx-and-asm", project, v12_lang)
+    finally:
+        finish(root)
+
+    # 6. Invalid names, including strings that merely contain C++.
+    invalid = {
+        "pascal": "pascal",
+        "assembly": "assembly",
+        "asm": "asm",
+        "68080 assembly": "68080 assembly",
+        "cpp": "cpp",
+        "C++extra": "C++extra",
+        "myC++": "myC++",
+        "use C++ please": "use C++ please",
+        "not C++": "not C++",
+    }
+    for label, token in invalid.items():
+        assert_problem("invalid-" + label, token, reject_language(token), template_path=os.path.join("missing-template.mk"))
+
+    # 7. Empty language selection.
+    for label, value in (("empty", ""), ("blank", "   "), ("empty-entry", "C,")):
+        problem = EMPTY_LANGUAGE if value.strip() == "" else EMPTY_ENTRY
+        assert_problem(label, value, problem)
+
+    # 8. Existing AGENTS.md and sources stay byte-for-byte unchanged.
+    seeded = {
+        "AGENTS.md": b"KEEP AGENTS\n",
+        "main.c": b"KEEP MAIN\n",
+        "Makefile": b"KEEP MAKE\nS_FLAGS = untouched\n",
+        "already.cpp": b"KEEP CPP\n",
+        "start.s": b"KEEP ASM\n",
+    }
+
+    def plant(project):
+        for name, data in seeded.items():
+            with open(os.path.join(project, name), "wb") as fh:
+                fh.write(data)
+
+    root, project, result = run_language("C, C++, assembler", v12_lang, prep=plant)
+    try:
+        if result.returncode != 0:
+            fail(f"existing-files failed:\n{result.stdout}")
+        else:
+            for name, data in seeded.items():
+                with open(os.path.join(project, name), "rb") as fh:
+                    got = fh.read()
+                if got != data:
+                    fail(f"existing-files changed {name}: {got!r}")
+            if source_paths(project) != ["already.cpp", "main.c", "start.s"]:
+                fail(f"existing-files sources became {source_paths(project)}")
+            if language_note_lines(result.stdout) != both_notes:
+                fail(f"existing-files notes:\n{language_note_lines(result.stdout)!r}")
+            if "KEEP AGENTS" not in read_text(os.path.join(project, "AGENTS.md")):
+                fail("existing-files rewrote AGENTS.md")
+    finally:
+        finish(root)
+
+    root, project, result = run_language("pascal", prep=plant)
+    try:
+        if result.returncode == 0:
+            fail("invalid language rewrote an existing project")
+        else:
+            for name, data in seeded.items():
+                with open(os.path.join(project, name), "rb") as fh:
+                    if fh.read() != data:
+                        fail(f"invalid language changed existing {name}")
+            if sorted(os.listdir(project)) != sorted(seeded):
+                fail(f"invalid language added files: {os.listdir(project)}")
+    finally:
+        finish(root)
+
+    # 9. v1.0 and v1.2 shapes: g++ selection, .s discovery, no .cpp collection.
+    for label, template, command in (
+        ("v12-classified", v12_lang, "make compile"),
+        ("v10-classified", v10_lang, "make cleanbefore build"),
+    ):
+        root, project, result = run_language("C++", template)
+        try:
+            if result.returncode != 0:
+                fail(f"{label} C++ failed:\n{result.stdout}")
+                continue
+            if language_note_lines(result.stdout) != CXX_READY:
+                fail(f"{label} C++ notes:\n{language_note_lines(result.stdout)!r}")
+            agents = read_text(os.path.join(project, "AGENTS.md"))
+            if uncommented_make_commands(agents) != [command]:
+                fail(f"{label} documented {uncommented_make_commands(agents)}")
+            if CAVEAT_CXX not in agents:
+                fail(f"{label} treated {command} as C++ verification")
+            written = read_text(os.path.join(project, "Makefile"))
+            verdict = classify_build.classify_text(written, "Makefile")
+            if verdict.command != command or verdict.status != "verified-non-uploading":
+                fail(f"{label} written Makefile classified as {verdict.status} {verdict.command}")
+        finally:
+            finish(root)
+        root, project, result = run_language("assembler", template)
+        try:
+            if result.returncode != 0:
+                fail(f"{label} assembler failed:\n{result.stdout}")
+            elif language_note_lines(result.stdout) != ASM_READY:
+                fail(f"{label} assembler notes:\n{language_note_lines(result.stdout)!r}")
+        finally:
+            finish(root)
+
+    for label, template, active, commented in (
+        (
+            "v10-shape",
+            V10_SHAPE,
+            "C_COMPILER\t= $(PREFIX)/bin/m68k-amigaos-g++",
+            "# C_COMPILER\t= $(PREFIX)/bin/m68k-amigaos-gcc",
+        ),
+        (
+            "v12-shape",
+            V12_SHAPE,
+            "C_COMPILER = $(PREFIX)/bin/m68k-amigaos-g++",
+            "# C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc",
+        ),
+    ):
+        root, project, result = run_language("C++", template)
+        try:
+            if result.returncode != 0:
+                fail(f"{label} failed:\n{result.stdout}")
+                continue
+            if language_note_lines(result.stdout) != CXX_READY:
+                fail(f"{label} notes:\n{language_note_lines(result.stdout)!r}")
+            makefile = read_text(os.path.join(project, "Makefile"))
+            if active not in makefile.splitlines() or commented not in makefile.splitlines():
+                fail(f"{label} did not switch the compiler lines:\n{makefile}")
+            if "wildcard $(C_SOURCEDIR)/*.cpp" in makefile or "wildcard $(APOLLOLIB)/*.cpp" in makefile:
+                fail(f"{label} invented .cpp collection")
+            assert_c_starter(label, project, template)
+        finally:
+            finish(root)
+
+    root, project, result = run_language("assembler", NO_S_SHAPE)
+    try:
+        if result.returncode != 0:
+            fail(f"no-s-discovery failed:\n{result.stdout}")
+        elif language_note_lines(result.stdout) != [ASM_STARTER, ASM_DOES_NOT]:
+            fail(f"no-s-discovery notes:\n{language_note_lines(result.stdout)!r}")
+        else:
+            agents = read_text(os.path.join(project, "AGENTS.md"))
+            if language_section(agents) != ASM_MISSING_BLOCK:
+                fail(f"no-s-discovery guidance:\n{language_section(agents)!r}")
+            if "S_FLAGS" in read_text(os.path.join(project, "Makefile")):
+                fail("no-s-discovery invented S_FLAGS")
+    finally:
+        finish(root)
+
+    root, project, result = run_language("C++", CPP_COLLECT_SHAPE)
+    try:
+        if result.returncode != 0:
+            fail(f"cpp-collect failed:\n{result.stdout}")
+        elif language_note_lines(result.stdout) != [CPP_STARTER, CPP_COLLECTS, CPP_SELECTED]:
+            fail(f"cpp-collect notes:\n{language_note_lines(result.stdout)!r}")
+        elif source_paths(project) != ["main.c"]:
+            fail("cpp-collect wrote a C++ starter")
+    finally:
+        finish(root)
+
+    # 10. Safe build-command classification is unchanged after the language runs.
+    expect_command("v1.2 compile after languages", V12_COMPILE, "make compile")
+    expect_command("v1.0 cleanbefore after languages", V10_CLEANBEFORE, "make cleanbefore build")
+    refused = classify_build.classify_text(
+        "cleanbefore:\n\t@rm -f app\nbuild:\n\tacp app host\n",
+        "upload.mk",
+    )
+    if refused.command is not None or refused.status != "upload-capable":
+        fail(f"upload refusal changed to {refused.status} {refused.command}")
+
+    # Basic setup keeps "not set yet" and does not take a language.
+    for label, value in (("basic-empty", ""), ("basic-blank", "   "), ("basic-pascal", "pascal"), ("basic-cxx", "C++")):
+        folder = tempfile.mkdtemp(prefix="akb-lang-basic-")
+        try:
+            basic = run_py([
+                "tools/write_project_files.py",
+                "--project", folder,
+                "--setup", "basic",
+                "--no-claude",
+                "--languages", value,
+            ])
+            if basic.returncode != 0:
+                fail(f"{label} failed:\n{basic.stdout}")
+                continue
+            text = read_text(os.path.join(folder, "AGENTS.md"))
+            if "- **Languages:** not set yet" not in text or "ask the developer" not in text:
+                fail(f"{label} did not keep the unset language field")
+            if os.path.exists(os.path.join(folder, "main.c")) or os.path.exists(os.path.join(folder, "Makefile")):
+                fail(f"{label} wrote a starter or Makefile")
+            if "NOTE=LANGUAGE" in basic.stdout or "PROBLEM=" in basic.stdout:
+                fail(f"{label} applied guided language rules:\n{basic.stdout}")
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+    if len(errors) == before:
+        print("WORKFLOW guided language selection: PASS")
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--run-toolchain",
+        action="store_true",
+        help=(
+            "run the authorised ApolloCrossDev probe that may invoke a "
+            "verified non-uploading Make target and a compiler smoke test"
+        ),
+    )
+    args = parser.parse_args(argv)
     print("SUITE shared-skill-workflows")
     print("NOTE=this runs the shared sh entry points and tools/resolve_kb.py. It does not load Cursor or Claude Code.")
+    if args.run_toolchain:
+        print("NOTE=--run-toolchain is set: a verified non-uploading Make target may run")
+    else:
+        print("NOTE=default mode is fixture-only; pass --run-toolchain for a real Make or compiler probe")
     check_entry_points()
     check_wsl_reexec_helper()
     check_resolve()
@@ -1547,8 +2238,13 @@ def main():
     check_find_acd_absent()
     check_lesson_gate()
     check_build_commands()
+    check_language_selection()
     check_ndk_diagnostics()
-    check_toolchain()
+    if args.run_toolchain:
+        check_toolchain()
+    else:
+        print("RESULT guided-build SKIPPED")
+        print("REASON=pass --run-toolchain to authorise a real Make or compiler probe")
     print(f"{len(errors)} structural problems")
     return 1 if errors else 0
 
