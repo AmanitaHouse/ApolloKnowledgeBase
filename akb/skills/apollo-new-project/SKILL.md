@@ -194,13 +194,15 @@ Tell the user what you found and let them choose:
 Run the check again after an install or update, until it reports no
 `PROBLEM=` line.
 
-**`APOLLOCROSSDEV`:** the project lives outside `ApolloCrossDev/Projects/`,
-so the Makefile needs it. If the check notes it is unset, offer to add
-`export APOLLOCROSSDEV="<ACD_ROOT>"` to `~/.zshrc` (macOS) or `~/.bashrc`
-(Linux), next to `AMIGAHOST` (the V4's IP address, needed for upload; ask
-for it if that is missing too). Change the file only with the user's
-consent. For this session, pass `APOLLOCROSSDEV=<ACD_ROOT>` on the classified
-build command from step 7. Do not assume that command is `make compile`.
+**`APOLLOCROSSDEV` (template-version specific):** read the NOTE= lines.
+Do not claim one fix for every template.
+
+| Template | Guidance |
+|---|---|
+| v1.2 (`PREFIX=$(ACD_ROOT)/Compilers/...`) | An out-of-tree project needs `APOLLOCROSSDEV` set to the ApolloCrossDev root, or the project two levels under that root. If the check notes it is unset, offer to add `export APOLLOCROSSDEV="<ACD_ROOT>"` to `~/.zshrc` (macOS) or `~/.bashrc` (Linux), next to `AMIGAHOST` (the V4's IP address, needed for upload; ask for it if that is missing too). Change the file only with the user's consent. For this session, pass `APOLLOCROSSDEV=<ACD_ROOT>` on the classified build command from step 7 when that command is documented. |
+| v1.0 (`PREFIX=$(PWD)/../../Compilers/...`) | Setting `APOLLOCROSSDEV` does **not** fix PREFIX. The relative path only works when the project is under `ApolloCrossDev/Projects/<name>`. If the project is elsewhere, explain that location incompatibility. Offer developer decisions only: move/create the project under `Projects/`, or update ApolloCrossDev for a v1.2+ template. Do not relocate the project, rewrite PREFIX, or pull ApolloCrossDev unless the developer asks. |
+
+Do not assume the documented build command is `make compile`.
 
 ## 5. Makefile and project instructions (guided setup)
 
@@ -208,18 +210,26 @@ Run `scripts/write-project-files.sh` with the host launch. This is the
 guided invocation that creates `AGENTS.md` when that file does not exist
 yet. Pass `--project`, `--setup guided`, the answers from step 1, and
 `--makefile-template` set to `<ACD_ROOT>/Projects/_makefiles/Makefile`.
-The script classifies that template with `KB tools/classify_build.py` before
-it writes `AGENTS.md`. That is the same classifier `find-acd.sh` uses.
+The script classifies that template with `KB tools/classify_build.py` and
+checks compiler-path readiness with `KB tools/resolve_compiler.py` before
+it writes `AGENTS.md`. Upload safety and build readiness stay separate.
 
-| Classification | What `AGENTS.md` documents |
+| Classification and readiness | What `AGENTS.md` documents |
 |---|---|
-| verified non-uploading `compile` | `make compile` |
-| verified non-uploading `cleanbefore` and `build`, and no safe `compile` | `make cleanbefore build` |
+| verified non-uploading `compile`, and PREFIX plus required NDK ready | `make compile` |
+| verified non-uploading `cleanbefore` and `build`, no safe `compile`, and PREFIX plus required NDK ready | `make cleanbefore build` |
+| verified non-uploading, but PREFIX unresolved/invalid or required NDK absent | an explanation that compilation is blocked; no Make command |
 | unverified, upload-capable, or no template | an explanation, and no Make command |
 
+A non-uploading classification alone is never enough to document a Make
+command. The effective project `PREFIX` must resolve for this project
+location, the compiler executable must exist there, and any active
+documented NDK requirement must be present. Do not substitute
+`m68k-amigaos/ndk-include`.
+
 If `AGENTS.md` already exists, the script leaves it unchanged. If it prints
-`NOTE=` because the file's build command does not match the template, show
-that note and wait. Do not rewrite the file.
+`NOTE=` because the file's build command does not match the template or the
+current compiler readiness, show that note and wait. Do not rewrite the file.
 
 The same run writes the Makefile. For C, assembler, and C `os-takeover`
 it changes only:
@@ -243,10 +253,12 @@ template shape allows, without new compiler or linker flags:
 - A copy of the project `.c` compile rule compiles `*.cpp` with `m68k-amigaos-g++`, through `CXX_COMPILER`. That path comes from the template's commented `m68k-amigaos-g++` line, or from an already-active `CXX_COMPILER` that names `m68k-amigaos-g++`. The script does not invent a G++ path from a GCC assignment. When the template has no identifiable G++ assignment, it prints `PROBLEM=` and writes nothing.
 - `C_COMPILER` is not switched to `g++`. A same basename in `.c` and `.cpp` would produce one `.o` name. The script reports `NOTE=CONFLICT` and does not write `main.cpp` when `main.c` is already there.
 
-If that Makefile cannot be classified as non-uploading, `AGENTS.md` names
-no Make command. An existing Makefile is left unchanged, and the notes say
-`.cpp` discovery was not added. Generating files does not show that
-`ndk39-include` or `ndk32-include/Include_H` is installed.
+If that Makefile cannot be classified as non-uploading, or the compiler
+path / required NDK is not ready, `AGENTS.md` names no Make command and
+explains the blocker. An existing Makefile is left unchanged, and the
+notes say `.cpp` discovery was not added. Generating files still creates
+the starter and Makefile when those paths are free; readiness only
+controls whether a Make command is documented.
 
 ## 6. The starting program (guided setup)
 
@@ -290,16 +302,18 @@ It also copies `assets/gitignore` to `.gitignore`.
 
 Build as the apollo-build skill describes (`KB skills/apollo-build/SKILL.md`).
 Run the command in the project's `AGENTS.md` only when that file names
-`make compile` or `make cleanbefore build`. Those are the commands this
-script documents after classifying the template. If the Build and test
-section does not name one of them, do not run make. Do not run `make` or
-`make debug` unless the developer asks. The build must end with no errors
-and no warnings before you continue. A successful build of `main.c` is a
-build of that C starter. A successful build of `main.cpp` is still not
-something this skill has verified: compilation and linkage of the C++
-starter remain unverified until a separate authorised test. Do not run
-that test unless the developer asks. When the language notes say the C++
-setup is incomplete, or that assembler was not generated, say that.
+`make compile` or `make cleanbefore build`. Those commands are documented
+only after a non-uploading classification **and** a ready compiler path
+(and required NDK). If the Build and test section does not name one of
+them, do not run make: compilation is blocked or no safe target exists.
+Do not run `make` or `make debug` unless the developer asks. The build
+must end with no errors and no warnings before you continue. A successful
+build of `main.c` is a build of that C starter. A successful build of
+`main.cpp` is still not something this skill has verified: compilation
+and linkage of the C++ starter remain unverified until a separate
+authorised test. Do not run that test unless the developer asks. When the
+language notes say the C++ setup is incomplete, or that assembler was not
+generated, say that.
 
 ## 8. Hand over
 

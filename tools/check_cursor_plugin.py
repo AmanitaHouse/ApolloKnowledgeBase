@@ -246,6 +246,8 @@ def check_rule_and_files():
         "docs/cursor-plugin.md",
         "rules/apollo-v4.mdc",
         "tools/resolve_kb.py",
+        "tools/classify_build.py",
+        "tools/resolve_compiler.py",
         "tools/write_project_files.py",
         "tools/submit_gate.py",
         "tools/wsl_reexec.sh",
