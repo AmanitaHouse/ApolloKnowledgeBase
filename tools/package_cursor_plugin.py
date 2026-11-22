@@ -77,6 +77,7 @@ REQUIRED_PACKAGE_PATHS = (
     "skills/apollo-new-project/SKILL.md",
     "skills/apollo-new-project/scripts/write-project-files.sh",
     "skills/apollo-new-project/assets/main-os-friendly.c",
+    "skills/apollo-new-project/assets/main-os-friendly.cpp",
     "skills/apollo-new-project/assets/main-os-takeover.c",
     "skills/apollo-new-project/assets/gitignore",
     "skills/apollo-build/SKILL.md",

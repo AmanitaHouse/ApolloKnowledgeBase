@@ -25,6 +25,13 @@ those characters. Any other name, or an empty value, prints PROBLEM= and
 writes no project file. Basic setup ignores --languages and records
 "not set yet".
 
+C++ is experimental and os-friendly only. A C++ os-takeover request
+prints PROBLEM= and writes nothing. An os-friendly C++ request writes
+main.cpp, leaves .c files on the template GCC line, and adds .cpp
+discovery compiled with m68k-amigaos-g++. That does not verify
+compilation, linkage, or hardware execution. C os-takeover and
+assembler-only setup are unchanged.
+
 Default --kb-url is the Apollo Team repository. Pass another clone URL
 only when the developer asks for that repository. The URL is recorded in the
 optional Claude Code settings; the git submodule itself is added by the
@@ -259,66 +266,154 @@ def project_wildcard(text, suffix):
     return False
 
 
-def language_caveat(selected):
-    """Comment appended to a guided build section when the starter is only C."""
-    if "C++" in selected and "assembler" in selected:
-        claim = (
-            "C++ project generation or compilation, or that an assembler program was generated"
-        )
-    elif "C++" in selected:
-        claim = "C++ project generation or compilation"
-    elif "assembler" in selected:
-        claim = "that an assembler program was generated"
-    else:
+def language_caveat(selected, situation=None):
+    """Comment appended to a guided build section for C++ or assembler."""
+    cxx = "C++" in selected
+    asm = "assembler" in selected
+    if not cxx and not asm:
         return None
-    return (
-        "# A non-uploading Make classification does not verify "
-        + claim
-        + ". The only starter is main.c."
+    if not cxx:
+        return (
+            "# A non-uploading Make classification does not verify "
+            "that an assembler program was generated. The only starter is main.c."
+        )
+    situation = situation or {}
+    claim = "C++ compilation, linkage, or hardware execution"
+    if asm:
+        claim += ", or that an assembler program was generated"
+    lines = [
+        "# A non-uploading Make classification does not verify " + claim + "."
+    ]
+    starter = situation.get("starter", "write")
+    makefile = situation.get("makefile", "absent")
+    configured = situation.get("configured", False)
+    fully = starter == "write" and configured and makefile == "write"
+    if fully:
+        lines.append("# The starter is main.cpp.")
+    elif starter == "keep":
+        lines.append("# An existing main.cpp was left unchanged.")
+    elif starter == "conflict":
+        lines.append("# main.cpp was not written because main.c already exists.")
+    if makefile == "preserved":
+        lines.append(
+            "# An existing Makefile was left unchanged, so .cpp discovery was not added."
+        )
+    elif makefile == "absent":
+        lines.append(
+            "# No Makefile template was supplied, so .cpp discovery was not configured."
+        )
+    elif not fully:
+        lines.append(
+            "# .cpp discovery was not fully configured in the generated Makefile."
+        )
+    if asm:
+        lines.append("# No assembler starter was written.")
+    lines.append(
+        "# Generating files does not show that ndk39-include or "
+        "ndk32-include/Include_H is installed."
     )
+    return "\n".join(lines)
 
 
-def language_notes(selected, template_text, cxx_status):
+def _cxx_status_notes(situation):
+    """Stdout lines for an os-friendly C++ request. situation describes what will be written."""
+    situation = situation or {}
+    starter = situation.get("starter", "write")
+    makefile = situation.get("makefile", "absent")
+    configured = situation.get("configured", False)
+    notes = []
+    if starter == "write":
+        notes.append(
+            "NOTE=LANGUAGE C++: guided setup wrote main.cpp for this os-friendly project "
+            "and did not write main.c."
+        )
+    elif starter == "keep":
+        notes.append(
+            "NOTE=LANGUAGE C++: an existing main.cpp was left unchanged. "
+            "A second entry point was not written."
+        )
+    else:
+        notes.append(
+            "NOTE=LANGUAGE C++: main.c already exists, so main.cpp was not written. "
+            "Those names would both produce main.o. C++ setup is incomplete."
+        )
+    if makefile == "write" and configured:
+        notes.append(
+            "NOTE=LANGUAGE C++: the generated Makefile discovers project .cpp files and "
+            "compiles them with m68k-amigaos-g++. .c files stay on the template GCC "
+            "C_COMPILER line. ApolloLib C compilation is unchanged. Assembler rules and "
+            "S_FLAGS are unchanged."
+        )
+    elif makefile == "preserved":
+        notes.append(
+            "NOTE=LANGUAGE C++: an existing Makefile was left unchanged, so .cpp discovery "
+            "was not added. This is not a configured C++ project."
+        )
+    elif makefile == "absent":
+        notes.append(
+            "NOTE=LANGUAGE C++: no Makefile template was supplied, so .cpp discovery was "
+            "not configured and no Make command is named."
+        )
+    elif makefile == "write":
+        gaps = []
+        if situation.get("discovery") not in {"added", "already"}:
+            gaps.append("discover project .cpp files")
+        if situation.get("rule") not in {"added", "already"}:
+            gaps.append("compile them with m68k-amigaos-g++")
+        if situation.get("link") not in {"added", "already"}:
+            gaps.append("add them to the link prerequisites")
+        if not gaps:
+            gaps.append("finish the .cpp rules")
+        notes.append(
+            "NOTE=LANGUAGE C++: the generated Makefile did not "
+            + ", ".join(gaps)
+            + ". C++ setup is incomplete."
+        )
+    notes.append(
+        "NOTE=LANGUAGE C++: C++ compilation, linkage, and hardware execution are not "
+        "verified. A non-uploading Make classification is not that verification."
+    )
+    notes.append(
+        "NOTE=LANGUAGE C++: generating these files does not show that the documented NDK "
+        "directories ndk39-include and ndk32-include/Include_H are installed."
+    )
+    for stem in situation.get("collisions") or []:
+        if stem == "main" and starter == "conflict":
+            continue
+        notes.append(
+            "NOTE=CONFLICT basename "
+            + stem
+            + ": "
+            + stem
+            + ".c and "
+            + stem
+            + ".cpp would produce the same object file."
+        )
+    return notes
+
+
+def language_notes(selected, template_text, situation=None):
     """Stdout diagnostics. Empty for C, including C combined with nothing else."""
     notes = []
     if "C++" in selected:
-        notes.append(
-            "NOTE=LANGUAGE C++: guided setup generates a C-style main.c starter, not a dedicated C++ starter. "
-            "When compiled with g++, it may be treated as C++ source."
-        )
-        if template_text is None:
-            notes.append(
-                "NOTE=LANGUAGE C++: no Makefile template was supplied, so .cpp sources are not collected. "
-                "Add .cpp files to the file lists as toolchain/project-makefile.md describes before claiming a C++ build."
-            )
-            notes.append(
-                "NOTE=LANGUAGE C++: no Makefile template was supplied, so the m68k-amigaos-g++ line is absent and C_COMPILER was not switched."
-            )
-        elif project_wildcard(template_text, "cpp"):
-            notes.append(
-                "NOTE=LANGUAGE C++: this Makefile template collects .cpp sources. "
-                "Guided setup still does not write a dedicated C++ starter."
-            )
-        else:
-            notes.append(
-                "NOTE=LANGUAGE C++: this Makefile template does not collect .cpp sources. "
-                "Add .cpp files to the file lists as toolchain/project-makefile.md describes before claiming a C++ build."
-            )
-        if cxx_status == "selected":
-            notes.append(
-                "NOTE=LANGUAGE C++: C_COMPILER was switched to the template m68k-amigaos-g++ line. "
-                "That switch does not verify C++ project generation or compilation, and a non-uploading Make classification is not that verification."
-            )
-        else:
-            notes.append(
-                "NOTE=LANGUAGE C++: C++ project generation and compilation are not verified. "
-                "A non-uploading Make classification is not that verification."
-            )
+        notes.extend(_cxx_status_notes(situation))
     if "assembler" in selected:
-        notes.append(
-            "NOTE=LANGUAGE assembler: guided setup does not supply an assembler starter. "
-            "main.c is the C starter, not an assembler program."
-        )
+        cpp_starter = situation and situation.get("starter") in {"write", "keep"}
+        if cpp_starter:
+            notes.append(
+                "NOTE=LANGUAGE assembler: guided setup does not supply an assembler starter. "
+                "main.cpp is the C++ starter, not an assembler program."
+            )
+        elif situation and situation.get("starter") == "conflict":
+            notes.append(
+                "NOTE=LANGUAGE assembler: guided setup does not supply an assembler starter. "
+                "main.cpp was not written. main.c is not an assembler program."
+            )
+        else:
+            notes.append(
+                "NOTE=LANGUAGE assembler: guided setup does not supply an assembler starter. "
+                "main.c is the C starter, not an assembler program."
+            )
         if template_text is None:
             notes.append(
                 "NOTE=LANGUAGE assembler: no Makefile template was supplied, so .s discovery was not established. "
@@ -337,63 +432,47 @@ def language_notes(selected, template_text, cxx_status):
     return notes
 
 
-def agents_language_block(selected, template_text, cxx_status):
+def _markdown_sentence(note):
+    """Turn a stdout language note into an AGENTS.md bullet sentence."""
+    text = note.split(": ", 1)[1]
+    protected = (
+        ("main.cpp", "`main.cpp`"),
+        ("main.c", "`main.c`"),
+        (".cpp files", "`.cpp` files"),
+        (".cpp discovery", "`.cpp` discovery"),
+        (".c files", "`.c` files"),
+        (".s files", "`.s` files"),
+        (".s discovery", "`.s` discovery"),
+    )
+    held = []
+    for index, (plain, marked) in enumerate(protected):
+        token = f"\ue010{index}\ue011"
+        text = text.replace(plain, token)
+        held.append((token, marked))
+    for plain, marked in (
+        ("ndk32-include/Include_H", "`ndk32-include/Include_H`"),
+        ("ndk39-include", "`ndk39-include`"),
+        ("m68k-amigaos-g++", "`m68k-amigaos-g++`"),
+        ("CXX_COMPILER", "`CXX_COMPILER`"),
+        ("C_COMPILER", "`C_COMPILER`"),
+        ("S_FLAGS", "`S_FLAGS`"),
+    ):
+        text = text.replace(plain, marked)
+    for token, marked in held:
+        text = text.replace(token, marked)
+    if text:
+        text = text[0].upper() + text[1:]
+    return text
+
+
+def agents_language_block(selected, template_text, situation=None):
     """Guidance written into a new AGENTS.md. Empty when the request is C only."""
     if "C++" not in selected and "assembler" not in selected:
         return ""
-    bullets = []
-    if "C++" in selected and "assembler" in selected:
-        bullets.append(
-            "The Languages line records the request. It does not mean a C++ or assembler program was generated."
-        )
-    elif "C++" in selected:
-        bullets.append(
-            "The Languages line records the request. It does not mean a C++ program was generated."
-        )
-    else:
-        bullets.append(
+    if "C++" not in selected:
+        bullets = [
             "The Languages line records the request. It does not mean an assembler program was generated."
-        )
-    if "C++" in selected:
-        bullets.append(
-            "Guided setup generates a C-style `main.c` starter, not a dedicated C++ starter. "
-            "When compiled with `g++`, it may be treated as C++ source."
-        )
-        if template_text is None:
-            bullets.append(
-                "No Makefile template was supplied, so `.cpp` sources are not collected. "
-                "Before a C++ build can be claimed, add `.cpp` files to the file lists as "
-                "`ApolloKnowledgeBase/toolchain/project-makefile.md` describes."
-            )
-            bullets.append(
-                "No Makefile template was supplied, so the `m68k-amigaos-g++` line is absent and `C_COMPILER` was not switched."
-            )
-        elif project_wildcard(template_text, "cpp"):
-            bullets.append(
-                "This Makefile template collects `.cpp` sources. Guided setup still does not write a dedicated C++ starter."
-            )
-        else:
-            bullets.append(
-                "This Makefile template does not collect `.cpp` sources. "
-                "Before a C++ build can be claimed, add `.cpp` files to the file lists as "
-                "`ApolloKnowledgeBase/toolchain/project-makefile.md` describes."
-            )
-        if cxx_status == "selected":
-            bullets.append(
-                "`C_COMPILER` uses the template `m68k-amigaos-g++` line. "
-                "That switch does not verify C++ project generation or compilation. "
-                "A non-uploading Make classification is not that verification."
-            )
-        else:
-            if template_text is not None and cxx_status == "absent":
-                bullets.append(
-                    "The template has no commented `m68k-amigaos-g++` line, so `C_COMPILER` was left unchanged."
-                )
-            bullets.append(
-                "C++ project generation and compilation are not verified. "
-                "A non-uploading Make classification is not that verification."
-            )
-    if "assembler" in selected:
+        ]
         bullets.append(
             "Guided setup does not supply an assembler starter. `main.c` is the C starter, not an assembler program."
         )
@@ -409,6 +488,32 @@ def agents_language_block(selected, template_text, cxx_status):
             bullets.append(
                 "This Makefile template does not discover `.s` files. No `.s` discovery was added and `S_FLAGS` was not changed."
             )
+        return "Guided setup language support:\n\n" + "\n".join("- " + item for item in bullets)
+    if "assembler" in selected:
+        intro = (
+            "The Languages line records the request. It does not mean C++ compilation, "
+            "linkage, or an assembler program was verified."
+        )
+    else:
+        intro = (
+            "The Languages line records the request. It does not mean C++ compilation "
+            "or linkage was verified."
+        )
+    bullets = [intro]
+    for note in language_notes(selected, template_text, situation):
+        if note.startswith("NOTE=LANGUAGE assembler: this Makefile") or note.startswith(
+            "NOTE=LANGUAGE assembler: no Makefile"
+        ):
+            bullets.append(_markdown_sentence(note))
+            continue
+        if note.startswith("NOTE=LANGUAGE assembler:"):
+            bullets.append(_markdown_sentence(note))
+            continue
+        if note.startswith("NOTE=LANGUAGE C++:"):
+            bullets.append(_markdown_sentence(note))
+            continue
+        if note.startswith("NOTE=CONFLICT "):
+            bullets.append(note[len("NOTE=CONFLICT "):])
     return "Guided setup language support:\n\n" + "\n".join("- " + item for item in bullets)
 
 
@@ -450,14 +555,220 @@ def areas_for(setup, mode):
     return rows
 
 
+def _gpp_assignment(lines):
+    """Return (rhs, how) for a G++ path the template itself names.
+
+    Supported ApolloCrossDev v1.0 and v1.2 templates comment a
+    m68k-amigaos-g++ C_COMPILER line beside the active GCC line. An
+    already-active CXX_COMPILER that names m68k-amigaos-g++ also counts.
+    A GCC assignment alone is not enough: this does not invent a G++ path
+    by renaming gcc to g++.
+    """
+    comment = None
+    active_cxx = None
+    for line in lines:
+        stripped = line.strip()
+        commented = re.match(r"#\s*C_COMPILER\s*=\s*(.+)$", stripped)
+        if commented and "m68k-amigaos-g++" in commented.group(1):
+            comment = commented.group(1).strip()
+        cxx = re.match(r"CXX_COMPILER\s*=\s*(.+)$", stripped)
+        if cxx and not stripped.startswith("#") and "m68k-amigaos-g++" in cxx.group(1):
+            active_cxx = cxx.group(1).strip()
+    if comment:
+        return comment, "comment"
+    if active_cxx:
+        return active_cxx, "cxx"
+    return None, "missing"
+
+
+CPP_COMPILER_PROBLEM = (
+    "C++ Guided setup needs a Makefile template that names m68k-amigaos-g++. "
+    "No identifiable G++ assignment was found, so CXX_COMPILER cannot be "
+    "established. Guided setup did not write project files. "
+    "It does not invent a G++ path from a GCC assignment. "
+    "C-only Guided setup is unchanged."
+)
+
+
+def require_cpp_compiler(template_path):
+    """Refuse an os-friendly C++ request when G++ is not named by the template."""
+    if not template_path:
+        return CPP_COMPILER_PROBLEM
+    if not os.path.isfile(template_path):
+        return f"Makefile template is missing: {template_path}"
+    with open(template_path, encoding="utf-8") as fh:
+        text = fh.read()
+    _, how = _gpp_assignment(text.splitlines())
+    if how == "missing":
+        return CPP_COMPILER_PROBLEM
+    return None
+
+
+def _existing_cpp_list_name(lines):
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "wildcard" not in stripped or "*.cpp" not in stripped:
+            continue
+        if "$(APOLLOLIB)" in stripped and "SOURCEDIR" not in stripped:
+            continue
+        match = re.match(r"([A-Za-z_][A-Za-z0-9_]*)\s*=", stripped)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _insert_cpp_files(lines):
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if re.match(r"C_FILES\s*=", stripped):
+            lines.insert(index + 1, "CPP_FILES = $(wildcard $(C_SOURCEDIR)/*.cpp)")
+            return True
+    return False
+
+
+def _append_cpp_objects(lines, list_name):
+    needle = (
+        "$(patsubst $(C_SOURCEDIR)/%.cpp,$(C_OBJECTDIR)/%.o,$(" + list_name + "))"
+    )
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "patsubst" not in line:
+            continue
+        if "$(C_SOURCEDIR)/%.c" not in line:
+            continue
+        if "$(C_SOURCEDIR)/%.cpp" in line:
+            return "already"
+        lines[index] = line + " " + needle
+        return "added"
+    return "missing"
+
+
+def _ensure_cxx_variable(lines, rhs):
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if re.match(r"CXX_COMPILER\s*=", stripped):
+            return
+    anchor = None
+    for index, line in enumerate(lines):
+        if re.match(r"#?\s*C_COMPILER\s*=", line.strip()):
+            anchor = index
+    row = "CXX_COMPILER = " + rhs
+    if anchor is None:
+        lines.insert(0, row)
+    else:
+        lines.insert(anchor + 1, row)
+
+
+_C_RULE = re.compile(r"^\$\(C_OBJECTDIR\)/%\.o\s*:\s*\$\(C_SOURCEDIR\)/%\.c\s*$")
+_CPP_RULE = re.compile(r"^\$\(C_OBJECTDIR\)/%\.o\s*:\s*\$\(C_SOURCEDIR\)/%\.cpp\s*$")
+
+
+def _insert_cpp_rule(lines):
+    for line in lines:
+        if _CPP_RULE.match(line.strip()):
+            return "already"
+    for index, line in enumerate(lines):
+        if not _C_RULE.match(line.strip()):
+            continue
+        recipe = []
+        cursor = index + 1
+        while cursor < len(lines) and lines[cursor].startswith("\t"):
+            recipe.append(lines[cursor])
+            cursor += 1
+        if not recipe:
+            return "missing"
+        rewritten = []
+        replaced = False
+        for step in recipe:
+            updated = step
+            if "$(C_COMPILER)" in step:
+                updated = step.replace("$(C_COMPILER)", "$(CXX_COMPILER)")
+                replaced = True
+            elif "m68k-amigaos-gcc" in step and "m68k-amigaos-g++" not in step:
+                updated = step.replace("m68k-amigaos-gcc", "$(CXX_COMPILER)", 1)
+                replaced = True
+            rewritten.append(updated)
+        if not replaced:
+            return "missing"
+        header = re.sub(r"%\.c\s*$", "%.cpp", line.strip())
+        lines[cursor:cursor] = [header] + rewritten
+        return "added"
+    return "missing"
+
+
+def add_cpp_rules(text):
+    """Add project .cpp discovery without changing the C or assembler rules.
+
+    .c files stay on C_COMPILER. ApolloLib rules are not matched, because
+    they use $(APOLLOLIB) rather than $(C_SOURCEDIR). O_LINKER is untouched.
+    """
+    info = {
+        "configured": False,
+        "discovery": "missing",
+        "link": "missing",
+        "rule": "missing",
+        "compiler": "missing",
+        "notes": [],
+    }
+    keep_newline = text.endswith("\n")
+    lines = text.splitlines()
+    rhs, how = _gpp_assignment(lines)
+    info["compiler"] = how
+    if how == "missing":
+        info["notes"].append(
+            "NOTE=Makefile template does not name m68k-amigaos-g++; "
+            "a G++ compile rule was not added."
+        )
+    list_name = _existing_cpp_list_name(lines)
+    if list_name:
+        info["discovery"] = "already"
+    elif _insert_cpp_files(lines):
+        info["discovery"] = "added"
+        list_name = "CPP_FILES"
+    else:
+        info["notes"].append(
+            "NOTE=Makefile template has no C_FILES assignment; "
+            "project .cpp files were not added to a source list."
+        )
+    if list_name:
+        info["link"] = _append_cpp_objects(lines, list_name)
+        if info["link"] == "missing":
+            info["notes"].append(
+                "NOTE=Makefile template has no project .c object list; "
+                ".cpp objects were not added to the link prerequisites."
+            )
+    if how != "missing":
+        info["rule"] = _insert_cpp_rule(lines)
+        if info["rule"] == "added":
+            _ensure_cxx_variable(lines, rhs)
+        elif info["rule"] == "missing":
+            info["notes"].append(
+                "NOTE=Makefile template has no project .c compile rule to copy; "
+                "a .cpp rule that uses m68k-amigaos-g++ was not added."
+            )
+    info["configured"] = (
+        info["discovery"] in {"added", "already"}
+        and info["link"] in {"added", "already"}
+        and info["rule"] in {"added", "already"}
+    )
+    rewritten = "\n".join(lines)
+    if keep_newline and not rewritten.endswith("\n"):
+        rewritten += "\n"
+    return rewritten, info
+
+
 def adjust_makefile(text, project_name, selected):
     notes = []
     lines = text.splitlines(keepends=True)
     name_done = False
     ndk39 = None
     active_ndk = []
-    gcc_line = None
-    gpp_line = None
     for i, line in enumerate(lines):
         stripped = line.lstrip()
         if not name_done and re.match(r"PROJECT_NAME\s*=", stripped):
@@ -472,10 +783,6 @@ def adjust_makefile(text, project_name, selected):
                 ndk39 = i
             if re.match(r"C_INCL_NDK\b", stripped):
                 active_ndk.append(i)
-        if re.match(r"C_COMPILER\s*=", stripped) and "g++" not in line:
-            gcc_line = i
-        if re.match(r"#\s*C_COMPILER\s*=", stripped) and "g++" in line:
-            gpp_line = i
     if not name_done:
         notes.append("NOTE=Makefile template has no PROJECT_NAME assignment")
     if ndk39 is None:
@@ -496,26 +803,38 @@ def adjust_makefile(text, project_name, selected):
             body = raw[:-1] if raw.endswith("\n") else raw
             if not body.lstrip().startswith("#"):
                 lines[i] = "# " + body + newline
-    cxx_status = "not-requested"
-    wants_cxx = "C++" in selected
-    if wants_cxx:
-        if gpp_line is None or gcc_line is None:
-            notes.append(
-                "NOTE=Makefile template has no commented m68k-amigaos-g++ line; C_COMPILER was left unchanged"
-            )
-            cxx_status = "absent"
-        else:
-            raw = lines[gpp_line]
-            newline = "\n" if raw.endswith("\n") else ""
-            body = raw[:-1] if raw.endswith("\n") else raw
-            lines[gpp_line] = re.sub(r"^#\s?", "", body, count=1) + newline
-            raw = lines[gcc_line]
-            newline = "\n" if raw.endswith("\n") else ""
-            body = raw[:-1] if raw.endswith("\n") else raw
-            if not body.lstrip().startswith("#"):
-                lines[gcc_line] = "# " + body + newline
-            cxx_status = "selected"
-    return "".join(lines), notes, cxx_status
+    joined = "".join(lines)
+    if "C++" not in selected:
+        return joined, notes, None
+    rewritten, info = add_cpp_rules(joined)
+    return rewritten, notes, info
+
+
+def _source_names(project, suffix):
+    found = []
+    for name in os.listdir(project):
+        path = os.path.join(project, name)
+        if os.path.isfile(path) and name.endswith(suffix):
+            found.append(name)
+    return found
+
+
+def cpp_starter_decision(project):
+    """Decide whether an os-friendly C++ run may write main.cpp.
+
+    Returns (action, collisions). action is write, keep, or conflict.
+    collisions lists basenames that already have both a .c and a .cpp file,
+    plus main when an existing main.c blocks the starter.
+    """
+    c_stems = {os.path.splitext(name)[0] for name in _source_names(project, ".c")}
+    cpp_names = _source_names(project, ".cpp")
+    cpp_stems = {os.path.splitext(name)[0] for name in cpp_names}
+    existing = sorted(c_stems & cpp_stems)
+    if "main.cpp" in cpp_names:
+        return "keep", existing
+    if "main" in c_stems:
+        return "conflict", sorted(set(existing) | {"main"})
+    return "write", existing
 
 
 def write_new(path, data, created, skipped):
@@ -567,6 +886,17 @@ def main(argv):
         if language_problem:
             return fail(language_problem)
         selected = frozenset(languages.split(", "))
+        if "C++" in selected and args.execution_mode == "os-takeover":
+            return fail(
+                "C++ os-takeover scaffolding is not supported yet. "
+                "Guided setup did not write project files. "
+                "The experimental C++ starter is os-friendly only. "
+                "C os-takeover is unchanged."
+            )
+        if "C++" in selected and args.execution_mode == "os-friendly":
+            compiler_problem = require_cpp_compiler(args.makefile_template)
+            if compiler_problem:
+                return fail(compiler_problem)
         what, kind, mode = args.what, args.kind, args.execution_mode
         basic = False
     else:
@@ -586,14 +916,27 @@ def main(argv):
     makefile_text = None
     makefile_notes = []
     build_verdict = None
-    cxx_status = "not-requested"
+    cpp_info = None
+    situation = None
     if args.setup == "guided":
+        if "C++" in selected and args.execution_mode == "os-friendly":
+            action, collisions = cpp_starter_decision(project)
+            makefile_state = "absent"
+            if args.makefile_template:
+                makefile_path = os.path.join(project, "Makefile")
+                makefile_state = "preserved" if os.path.exists(makefile_path) else "write"
+            situation = {
+                "starter": action,
+                "makefile": makefile_state,
+                "configured": False,
+                "collisions": collisions,
+            }
         if args.makefile_template:
             if not os.path.isfile(args.makefile_template):
                 return fail(f"Makefile template is missing: {args.makefile_template}")
             with open(args.makefile_template, encoding="utf-8") as fh:
                 makefile_text = fh.read()
-            makefile_text, makefile_notes, cxx_status = adjust_makefile(
+            makefile_text, makefile_notes, cpp_info = adjust_makefile(
                 makefile_text, name, selected,
             )
             # Classify the Makefile text that will be written, not the raw
@@ -602,11 +945,25 @@ def main(argv):
             build_verdict = classify_build.classify_text(
                 makefile_text, args.makefile_template,
             )
-            build_body = agents_build_body(build_verdict)
+            if situation and situation["makefile"] == "preserved":
+                build_body = (
+                    "# An existing Makefile was left unchanged.\n"
+                    "# .cpp discovery was not added. This file names no build command."
+                )
+                build_verdict = None
+            elif situation and situation["makefile"] == "write":
+                if cpp_info:
+                    situation["configured"] = bool(cpp_info["configured"])
+                    situation["discovery"] = cpp_info["discovery"]
+                    situation["link"] = cpp_info["link"]
+                    situation["rule"] = cpp_info["rule"]
+                    situation["compiler"] = cpp_info["compiler"]
+                build_body = agents_build_body(build_verdict)
+            else:
+                build_body = agents_build_body(build_verdict)
         else:
-            cxx_status = "no-template"
             build_body = NO_TEMPLATE_BUILD
-        caveat = language_caveat(selected)
+        caveat = language_caveat(selected, situation)
         if caveat:
             build_body += "\n" + caveat
 
@@ -624,7 +981,7 @@ def main(argv):
     try:
         language_block = ""
         if args.setup == "guided":
-            language_block = agents_language_block(selected, makefile_text, cxx_status)
+            language_block = agents_language_block(selected, makefile_text, situation)
         agents = fill_agents(
             template, name, what, kind, mode, languages,
             areas_for(args.setup, args.execution_mode), build_body, basic,
@@ -669,30 +1026,52 @@ def main(argv):
         print("NOTE=Claude Code files were not requested. Cursor does not need them.")
 
     if args.setup == "guided":
-        asset_main = os.path.join(
-            ROOT,
-            "skills",
-            "apollo-new-project",
-            "assets",
-            "main-os-takeover.c" if args.execution_mode == "os-takeover" else "main-os-friendly.c",
-        )
         gitignore = os.path.join(
             ROOT, "skills", "apollo-new-project", "assets", "gitignore"
         )
-        with open(asset_main, encoding="utf-8") as fh:
-            main_c = fh.read()
         targets = (
             "the latest core release, any V4 model, "
             "ApolloOS R10, AmigaOS 3.9 and AmigaOS 3.2"
         )
-        main_c = (
-            main_c.replace("@PROJECT@", name)
-            .replace("@WHAT@", what)
-            .replace("@TARGETS@", targets)
-        )
-        if "@" in main_c:
-            return fail("starting program still contains an @placeholder@")
-        write_new(os.path.join(project, "main.c"), main_c, created, skipped)
+        cpp_friendly = "C++" in selected and args.execution_mode == "os-friendly"
+        if cpp_friendly:
+            if situation["starter"] in {"write", "keep"}:
+                asset_main = os.path.join(
+                    ROOT,
+                    "skills",
+                    "apollo-new-project",
+                    "assets",
+                    "main-os-friendly.cpp",
+                )
+                with open(asset_main, encoding="utf-8") as fh:
+                    starter = fh.read()
+                starter = (
+                    starter.replace("@PROJECT@", name)
+                    .replace("@WHAT@", what)
+                    .replace("@TARGETS@", targets)
+                )
+                if "@" in starter:
+                    return fail("starting program still contains an @placeholder@")
+                write_new(os.path.join(project, "main.cpp"), starter, created, skipped)
+        else:
+            asset_name = (
+                "main-os-takeover.c"
+                if args.execution_mode == "os-takeover"
+                else "main-os-friendly.c"
+            )
+            asset_main = os.path.join(
+                ROOT, "skills", "apollo-new-project", "assets", asset_name
+            )
+            with open(asset_main, encoding="utf-8") as fh:
+                starter = fh.read()
+            starter = (
+                starter.replace("@PROJECT@", name)
+                .replace("@WHAT@", what)
+                .replace("@TARGETS@", targets)
+            )
+            if "@" in starter:
+                return fail("starting program still contains an @placeholder@")
+            write_new(os.path.join(project, "main.c"), starter, created, skipped)
         with open(gitignore, encoding="utf-8") as fh:
             ignore = fh.read()
         if not ignore.endswith("\n"):
@@ -701,10 +1080,13 @@ def main(argv):
         if makefile_text is not None:
             for note in makefile_notes:
                 print(note)
+            if cpp_info and situation and situation["makefile"] == "write":
+                for note in cpp_info["notes"]:
+                    print(note)
             write_new(os.path.join(project, "Makefile"), makefile_text, created, skipped)
         else:
             print("SKIPPED=Makefile reason=no-template")
-        for note in language_notes(selected, makefile_text, cxx_status):
+        for note in language_notes(selected, makefile_text, situation):
             print(note)
 
     print(f"SUMMARY created={len(created)} skipped={len(skipped)}")
