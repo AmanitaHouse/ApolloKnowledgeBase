@@ -16,6 +16,8 @@ Usage:
   python tools/write_project_files.py --project DIR --setup guided \\
       --name NAME --what "one sentence" --kind tool \\
       --execution-mode os-friendly --languages C \\
+      [--target-os "AmigaOS 3.9"] \\
+      [--target-core "Core 12798–12841"] \\
       [--makefile-template PATH] [--claude | --no-claude] \\
       [--kb-url URL]
 
@@ -26,6 +28,15 @@ is not a separator, and a value is not C++ merely because it contains
 those characters. Any other name, or an empty value, prints PROBLEM= and
 writes no project file. Basic setup ignores --languages and records
 "not set yet".
+
+Guided --target-os accepts ApolloOS R10, AmigaOS 3.9, and AmigaOS 3.2
+(same separators as --languages). Guided --target-core accepts the
+default phrase "the latest core release", "any", a single Core N,
+Core N+, or an inclusive Core N–M range (ASCII hyphen or en/em dash).
+Omitting either flag keeps the repository defaults. Invalid or
+ambiguous values print PROBLEM= and write no project file. Basic setup
+rejects both flags when they are supplied: it does not silently discard
+explicit target requirements.
 
 C++ is experimental and os-friendly only. A C++ os-takeover request
 prints PROBLEM= and writes nothing. An os-friendly C++ request writes
@@ -51,6 +62,19 @@ KINDS = {"game", "demo", "tool", "application", "library", "device", "datatype"}
 MODES = {"os-friendly", "os-takeover"}
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
+# Defaults preserved when guided --target-os / --target-core are omitted.
+DEFAULT_TARGET_CORE = "the latest core release"
+DEFAULT_TARGET_OS = "ApolloOS R10, AmigaOS 3.9 and AmigaOS 3.2"
+DEFAULT_TARGET_MODEL = "any V4 model"
+OS_APOLLO = "ApolloOS R10"
+OS_39 = "AmigaOS 3.9"
+OS_32 = "AmigaOS 3.2"
+_OS_ORDER = (OS_APOLLO, OS_39, OS_32)
+_ACCEPTED_OS = "ApolloOS R10, AmigaOS 3.9, and AmigaOS 3.2"
+_OS_SEPARATORS = "separated by commas, plus signs, or the words and, or, and and/or"
+_CORE_RE = re.compile(r"(?i)^core\s+(\d+)(?:\s*([-–—])\s*(\d+))?(\+)?$")
+_EN_DASH = "\u2013"
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -58,18 +82,37 @@ import classify_build  # noqa: E402
 import resolve_compiler  # noqa: E402
 import resolve_kb  # noqa: E402
 
-PROJECT_RULE = """---
-description: This project targets the Apollo V4. Read ApolloKnowledgeBase/AGENTS.md before changing platform code, and use the akb skills to set up, build, and record lessons.
-alwaysApply: false
----
 
-This repository is an Apollo V4 project.
+def project_rule_text(target_os, target_core):
+    """Cursor rule that agrees with AGENTS.md target fields."""
+    return (
+        "---\n"
+        "description: This project targets the Apollo V4. Read "
+        "ApolloKnowledgeBase/AGENTS.md before changing platform code, and use "
+        "the akb skills to set up, build, and record lessons.\n"
+        "alwaysApply: false\n"
+        "---\n"
+        "\n"
+        "This repository is an Apollo V4 project.\n"
+        "\n"
+        "- Read `ApolloKnowledgeBase/AGENTS.md` before writing or changing "
+        "Apollo code. If that directory is empty, ask for "
+        "`git submodule update --init ApolloKnowledgeBase` instead of guessing.\n"
+        "- Paths in that file are relative to `ApolloKnowledgeBase/`.\n"
+        f"- **Target OS:** {target_os}\n"
+        f"- **Target core:** {target_core}\n"
+        f"- **Target model:** {DEFAULT_TARGET_MODEL}\n"
+        "- Use `/apollo-build` before presenting code that must compile. Do not "
+        "run `make` or `make debug` unless the developer asks: those upload to "
+        "the V4.\n"
+        "- Use `/akb-lesson` when a milestone is done or an assumption was "
+        "wrong. Do not publish or submit a lesson until the developer approves "
+        "the exact text and names the destination.\n"
+    )
 
-- Read `ApolloKnowledgeBase/AGENTS.md` before writing or changing Apollo code. If that directory is empty, ask for `git submodule update --init ApolloKnowledgeBase` instead of guessing.
-- Paths in that file are relative to `ApolloKnowledgeBase/`.
-- Use `/apollo-build` before presenting code that must compile. Do not run `make` or `make debug` unless the developer asks: those upload to the V4.
-- Use `/akb-lesson` when a milestone is done or an assumption was wrong. Do not publish or submit a lesson until the developer approves the exact text and names the destination.
-"""
+
+# Default rule text; guided and basic setup always rebuild via project_rule_text().
+PROJECT_RULE = project_rule_text(DEFAULT_TARGET_OS, DEFAULT_TARGET_CORE)
 
 
 def fail(message):
@@ -100,19 +143,144 @@ def replace_after(text, prefix, value):
     return text[:start] + value + text[end + 1:]
 
 
-def fill_agents(template, name, what, kind, mode, languages, areas, build_body, basic, language_block=""):
+def _split_list_tokens(raw):
+    """Split a guided multi-value flag the same way --languages does."""
+    return re.split(
+        r"\s*(?:,|(?:\band/or\b)|(?:\band\b)|(?:\bor\b)|\+)\s*",
+        raw.strip(),
+        flags=re.IGNORECASE,
+    )
+
+
+def _canonical_os(token):
+    key = re.sub(r"[\s_]+", "-", token.strip().lower())
+    key = key.replace("amiga-os", "amigaos").replace("apollo-os", "apolloos")
+    aliases = {
+        "apolloos-r10": OS_APOLLO,
+        "apolloos": OS_APOLLO,
+        "amigaos-3.9": OS_39,
+        "amigaos3.9": OS_39,
+        "amigaos-3.2": OS_32,
+        "amigaos3.2": OS_32,
+    }
+    return aliases.get(key)
+
+
+def format_os_list(oses):
+    ordered = [name for name in _OS_ORDER if name in oses]
+    if len(ordered) == 1:
+        return ordered[0]
+    if len(ordered) == 2:
+        return f"{ordered[0]} and {ordered[1]}"
+    return ", ".join(ordered[:-1]) + " and " + ordered[-1]
+
+
+def parse_target_os(raw):
+    """Return (display, frozenset, problem). Empty raw keeps the default list."""
+    if raw is None or not str(raw).strip():
+        return DEFAULT_TARGET_OS, frozenset(_OS_ORDER), None
+    parts = _split_list_tokens(str(raw))
+    chosen = []
+    unknown = []
+    for part in parts:
+        token = part.strip()
+        if token == "":
+            return None, frozenset(), (
+                "guided setup target OS has an empty entry. Pass one or more of "
+                + _ACCEPTED_OS
+                + ", "
+                + _OS_SEPARATORS
+                + " (for example: AmigaOS 3.9)."
+            )
+        name = _canonical_os(token)
+        if name is None:
+            unknown.append(token)
+        elif name not in chosen:
+            chosen.append(name)
+    if unknown:
+        shown = ", ".join(repr(token) for token in unknown)
+        return None, frozenset(), (
+            "guided setup does not recognize target OS "
+            + shown
+            + ". Pass one or more of "
+            + _ACCEPTED_OS
+            + ", "
+            + _OS_SEPARATORS
+            + ". AmigaOS alone is ambiguous; name 3.9 or 3.2."
+        )
+    return format_os_list(chosen), frozenset(chosen), None
+
+
+def parse_target_core(raw):
+    """Return (display, problem). Empty raw keeps the default phrase."""
+    if raw is None or not str(raw).strip():
+        return DEFAULT_TARGET_CORE, None
+    text = " ".join(str(raw).strip().split())
+    lowered = text.lower()
+    if lowered == DEFAULT_TARGET_CORE:
+        return DEFAULT_TARGET_CORE, None
+    if lowered == "any":
+        return "any", None
+    match = _CORE_RE.fullmatch(text)
+    if not match:
+        return None, (
+            "guided setup target core "
+            + repr(text)
+            + " is invalid. Pass "
+            + repr(DEFAULT_TARGET_CORE)
+            + ", any, Core N, Core N+, or an inclusive Core N–M range "
+            "(ASCII hyphen or en/em dash). Example: Core 12798–12841."
+        )
+    start, _dash, end, plus = match.groups()
+    if end and plus:
+        return None, (
+            "guided setup target core "
+            + repr(text)
+            + " is ambiguous: a range cannot also use +. Pass Core N–M or Core N+."
+        )
+    if end:
+        left, right = int(start), int(end)
+        if right < left:
+            return None, (
+                "guided setup target core "
+                + repr(text)
+                + " is invalid: the range end must be greater than or equal to the start."
+            )
+        return f"Core {left}{_EN_DASH}{right}", None
+    if plus:
+        return f"Core {int(start)}+", None
+    return f"Core {int(start)}", None
+
+
+def required_ndk_kind(oses):
+    """NDK folder kind for the selected Target OS list (toolchain/target-os-headers.md)."""
+    if OS_39 in oses:
+        return "ndk39"
+    if oses and oses <= {OS_32, OS_APOLLO}:
+        return "ndk32"
+    return None
+
+
+def fill_agents(
+    template, name, what, kind, mode, languages, areas, build_body, basic,
+    language_block="", target_os=None, target_core=None,
+):
+    if target_os is None:
+        target_os = DEFAULT_TARGET_OS
+    if target_core is None:
+        target_core = DEFAULT_TARGET_CORE
     text = re.sub(r"<!--.*?-->\n?", "", template, flags=re.S)
     text = replace_after(text, "# AGENTS.md: ", name)
     text = replace_after(text, "- **What it is:** ", what)
     text = replace_after(text, "- **Kind:** ", kind)
-    text = replace_after(text, "- **Target core:** ", "the latest core release")
+    text = replace_after(text, "- **Target core:** ", target_core)
     text = replace_after(
-        text, "- **Target model:** ", "any V4 model"
+        text, "- **Target model:** ", DEFAULT_TARGET_MODEL
     )
     text = replace_after(
         text,
         "- **Target OS:** ",
-        "ApolloOS R10, AmigaOS 3.9 and AmigaOS 3.2",
+        target_os,
     )
     text = replace_after(text, "- **Execution mode:** ", mode)
     text = replace_after(text, "- **Languages:** ", languages)
@@ -831,11 +999,43 @@ def add_cpp_rules(text):
     return rewritten, info
 
 
-def adjust_makefile(text, project_name, selected):
+def _ndk_line_kind(line):
+    if "ndk39-include" in line:
+        return "ndk39"
+    if "ndk32-include" in line:
+        return "ndk32"
+    return None
+
+
+def _activate_ndk_line(lines, index):
+    raw = lines[index]
+    newline = "\n" if raw.endswith("\n") else ""
+    body = raw[:-1] if raw.endswith("\n") else raw
+    body = re.sub(r"^#\s?", "", body, count=1)
+    lines[index] = body + newline
+
+
+def _comment_ndk_line(lines, index):
+    raw = lines[index]
+    newline = "\n" if raw.endswith("\n") else ""
+    body = raw[:-1] if raw.endswith("\n") else raw
+    if not body.lstrip().startswith("#"):
+        lines[index] = "# " + body + newline
+
+
+def adjust_makefile(text, project_name, selected, target_oses=None):
+    """Rewrite PROJECT_NAME and the NDK include for the selected Target OS.
+
+    Returns (makefile_text, notes, cpp_info, ndk_consistent).
+    ndk_consistent is False when the template cannot express the NDK required
+    by toolchain/target-os-headers.md for the requested OS list.
+    """
+    if target_oses is None:
+        target_oses = frozenset(_OS_ORDER)
     notes = []
     lines = text.splitlines(keepends=True)
     name_done = False
-    ndk39 = None
+    ndk_lines = {"ndk39": None, "ndk32": None}
     active_ndk = []
     for i, line in enumerate(lines):
         stripped = line.lstrip()
@@ -843,39 +1043,65 @@ def adjust_makefile(text, project_name, selected):
             newline = "\n" if line.endswith("\n") else ""
             lines[i] = f"PROJECT_NAME = {project_name}{newline}"
             name_done = True
-        if "C_INCL_NDK" in line and not stripped.startswith("#") and "C_INCL_NDK" in stripped:
-            # commented lines are handled below; this catches the active assignment
-            pass
         if re.match(r"#\s*C_INCL_NDK\b", stripped) or re.match(r"C_INCL_NDK\b", stripped):
-            if "ndk39-include" in line:
-                ndk39 = i
+            kind = _ndk_line_kind(line)
+            if kind and ndk_lines[kind] is None:
+                ndk_lines[kind] = i
             if re.match(r"C_INCL_NDK\b", stripped):
                 active_ndk.append(i)
     if not name_done:
         notes.append("NOTE=Makefile template has no PROJECT_NAME assignment")
-    if ndk39 is None:
+
+    want = required_ndk_kind(target_oses)
+    ndk_consistent = True
+    present = {kind for kind, index in ndk_lines.items() if index is not None}
+    if want is None:
+        ndk_consistent = False
         notes.append(
-            "NOTE=Makefile template has no ndk39-include line; C_INCL_NDK was left unchanged"
+            "NOTE=Target OS list has no documented NDK mapping in "
+            "toolchain/target-os-headers.md; C_INCL_NDK was left unchanged"
         )
+    elif ndk_lines[want] is None:
+        label = (
+            "ndk39-include"
+            if want == "ndk39"
+            else "ndk32-include/Include_H"
+        )
+        if present:
+            # Template declares a different NDK than the Target OS requires.
+            ndk_consistent = False
+            notes.append(
+                f"NOTE=Makefile template has no {label} line for the requested "
+                "Target OS; C_INCL_NDK was left unchanged and build readiness "
+                "is not claimed"
+            )
+        else:
+            # No identifiable NDK include line: leave the Makefile unchanged
+            # and do not claim readiness from upload-safety alone.
+            ndk_consistent = False
+            notes.append(
+                f"NOTE=Makefile template has no identifiable C_INCL_NDK line "
+                f"(needed {label} for the requested Target OS); "
+                "C_INCL_NDK was left unchanged and build readiness is not claimed"
+            )
     else:
-        raw = lines[ndk39]
-        newline = "\n" if raw.endswith("\n") else ""
-        body = raw[:-1] if raw.endswith("\n") else raw
-        body = re.sub(r"^#\s?", "", body, count=1)
-        lines[ndk39] = body + newline
+        chosen = ndk_lines[want]
+        _activate_ndk_line(lines, chosen)
         for i in active_ndk:
-            if i == ndk39:
+            if i == chosen:
                 continue
-            raw = lines[i]
-            newline = "\n" if raw.endswith("\n") else ""
-            body = raw[:-1] if raw.endswith("\n") else raw
-            if not body.lstrip().startswith("#"):
-                lines[i] = "# " + body + newline
+            _comment_ndk_line(lines, i)
+        for kind, index in ndk_lines.items():
+            if index is None or index == chosen:
+                continue
+            if kind != want:
+                _comment_ndk_line(lines, index)
+
     joined = "".join(lines)
     if "C++" not in selected:
-        return joined, notes, None
+        return joined, notes, None, ndk_consistent
     rewritten, info = add_cpp_rules(joined)
-    return rewritten, notes, info
+    return rewritten, notes, info, ndk_consistent
 
 
 def _source_names(project, suffix):
@@ -928,6 +1154,22 @@ def main(argv):
     parser.add_argument("--kind", default="")
     parser.add_argument("--execution-mode", default="", choices=("", "os-friendly", "os-takeover"))
     parser.add_argument("--languages", default="C")
+    parser.add_argument(
+        "--target-os",
+        default="",
+        help=(
+            "guided Target OS list (ApolloOS R10, AmigaOS 3.9, AmigaOS 3.2). "
+            "Omit to keep the default three-OS list."
+        ),
+    )
+    parser.add_argument(
+        "--target-core",
+        default="",
+        help=(
+            "guided Target core (the latest core release, any, Core N, Core N+, "
+            "or Core N–M). Omit to keep the default phrase."
+        ),
+    )
     parser.add_argument("--makefile-template", default="")
     parser.add_argument("--kb-url", default=FORK_URL)
     parser.add_argument("--claude", dest="claude", action="store_true")
@@ -943,6 +1185,9 @@ def main(argv):
         return fail(f"project name must be letters, digits, '-' or '_': {name!r}")
 
     selected = frozenset()
+    target_os = DEFAULT_TARGET_OS
+    target_core = DEFAULT_TARGET_CORE
+    target_oses = frozenset(_OS_ORDER)
     if args.setup == "guided":
         if not args.what or not args.kind or not args.execution_mode:
             return fail("guided setup needs --what, --kind, and --execution-mode")
@@ -953,6 +1198,12 @@ def main(argv):
         languages, language_problem = parse_guided_languages(args.languages)
         if language_problem:
             return fail(language_problem)
+        target_os, target_oses, os_problem = parse_target_os(args.target_os)
+        if os_problem:
+            return fail(os_problem)
+        target_core, core_problem = parse_target_core(args.target_core)
+        if core_problem:
+            return fail(core_problem)
         selected = frozenset(languages.split(", "))
         if "C++" in selected and args.execution_mode == "os-takeover":
             return fail(
@@ -968,6 +1219,13 @@ def main(argv):
         what, kind, mode = args.what, args.kind, args.execution_mode
         basic = False
     else:
+        if args.target_os.strip() or args.target_core.strip():
+            return fail(
+                "basic setup does not accept --target-os or --target-core. "
+                "Omit those flags to keep the historical basic defaults, or use "
+                "--setup guided with --what, --kind, --execution-mode, and the "
+                "explicit target flags."
+            )
         what = kind = mode = languages = "not set yet"
         build_body = (
             "Not set up yet: use the apollo-build skill when the project gets a Makefile."
@@ -987,6 +1245,7 @@ def main(argv):
     build_assessment = None
     cpp_info = None
     situation = None
+    ndk_consistent = True
     if args.setup == "guided":
         if "C++" in selected and args.execution_mode == "os-friendly":
             action, collisions = cpp_starter_decision(project)
@@ -1005,8 +1264,8 @@ def main(argv):
                 return fail(f"Makefile template is missing: {args.makefile_template}")
             with open(args.makefile_template, encoding="utf-8") as fh:
                 makefile_text = fh.read()
-            makefile_text, makefile_notes, cpp_info = adjust_makefile(
-                makefile_text, name, selected,
+            makefile_text, makefile_notes, cpp_info, ndk_consistent = adjust_makefile(
+                makefile_text, name, selected, target_oses,
             )
             # Classify the Makefile text that will be written, not the raw
             # template path alone. Upload safety and compiler-path readiness
@@ -1026,6 +1285,28 @@ def main(argv):
                 )
                 build_verdict = None
                 build_assessment = None
+            elif not ndk_consistent:
+                build_body = (
+                    "# The Makefile NDK include line could not be established for "
+                    "the requested Target OS.\n"
+                    "# toolchain/target-os-headers.md: AmigaOS 3.9 needs "
+                    "ndk39-include; AmigaOS 3.2 and ApolloOS R10 need "
+                    "ndk32-include/Include_H.\n"
+                    "# This file names no build command."
+                )
+                print(
+                    "NOTE=build-readiness: Target OS and Makefile NDK line are "
+                    "inconsistent; AGENTS.md names no Make command"
+                )
+                for note in makefile_notes:
+                    if note.startswith("NOTE=") and "ndk" in note.lower():
+                        print(note)
+                if situation and situation["makefile"] == "write" and cpp_info:
+                    situation["configured"] = bool(cpp_info["configured"])
+                    situation["discovery"] = cpp_info["discovery"]
+                    situation["link"] = cpp_info["link"]
+                    situation["rule"] = cpp_info["rule"]
+                    situation["compiler"] = cpp_info["compiler"]
             elif situation and situation["makefile"] == "write":
                 if cpp_info:
                     situation["configured"] = bool(cpp_info["configured"])
@@ -1063,6 +1344,8 @@ def main(argv):
             template, name, what, kind, mode, languages,
             areas_for(args.setup, args.execution_mode), build_body, basic,
             language_block,
+            target_os=target_os,
+            target_core=target_core,
         )
     except ValueError as exc:
         return fail(str(exc))
@@ -1075,7 +1358,7 @@ def main(argv):
         report_agents_mismatch(agents_path, build_verdict, build_assessment)
     write_new(
         os.path.join(project, ".cursor", "rules", "apollo-v4.mdc"),
-        PROJECT_RULE,
+        project_rule_text(target_os, target_core),
         created,
         skipped,
     )
@@ -1106,10 +1389,9 @@ def main(argv):
         gitignore = os.path.join(
             ROOT, "skills", "apollo-new-project", "assets", "gitignore"
         )
-        targets = (
-            "the latest core release, any V4 model, "
-            "ApolloOS R10, AmigaOS 3.9 and AmigaOS 3.2"
-        )
+        # Default keeps the historical three-OS / latest-core summary. Explicit
+        # --target-os / --target-core values replace only those fields.
+        targets = f"{target_core}, {DEFAULT_TARGET_MODEL}, {target_os}"
         cpp_friendly = "C++" in selected and args.execution_mode == "os-friendly"
         if cpp_friendly:
             if situation["starter"] in {"write", "keep"}:
