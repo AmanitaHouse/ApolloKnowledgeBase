@@ -178,6 +178,7 @@
 /guides/testing-on-v4-hardware.md @WDrijver
 /guides/writing-cpu-tests.md @TuKo1982
 /hardware/index.md @WDrijver
+/hardware/pitfalls/ide-speed-cf-write-corruption.md @WDrijver
 /hardware/v4-generic/i2c-header.md @WDrijver
 /hardware/v4-generic/memory.md @TuKo1982
 /hardware/v4-generic/p22-secondary-sd-slot.md @TuKo1982
