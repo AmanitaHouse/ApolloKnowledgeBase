@@ -12,11 +12,7 @@
 
 extern struct ExecBase *SysBase;
 
-/* ApolloKnowledgeBase os/best-practices/detect-68080-and-fpu-at-run-time.md
-   Reviewed applicability: Core 12798-12841, AmigaOS 3.9 and AmigaOS 3.2.
-   Recorded measurements: AmigaOS 3.9. ApolloOS R10 and newer cores remain
-   intended targets; that article does not demonstrate them. Missing
-   measurements do not mean incompatibility. */
+/* ApolloKnowledgeBase os/best-practices/detect-68080-and-fpu-at-run-time.md */
 static int has_68080(void) { return (SysBase->AttnFlags & (1 << 10)) != 0; }
 static int has_fpu(void)   { return (SysBase->AttnFlags & AFF_68881) != 0; }
 
