@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "akb-knowledge": {
+      "type": "stdio",
+      "command": "cmd.exe",
+      "args": ["/d", "/s", "/c", "${CURSOR_PLUGIN_ROOT}/tools/akb_mcp_launch.cmd"],
+      "cwd": "${CURSOR_PLUGIN_ROOT}",
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "AKB_PLUGIN_ROOT": "${CURSOR_PLUGIN_ROOT}"
+      }
+    }
+  }
+}

@@ -229,8 +229,49 @@ def named_directory_source(source):
 def check_rule_and_files():
     if os.path.isdir(os.path.join(ROOT, "commands")):
         fail("commands/ would clash with the skill names; do not add it")
-    if os.path.isfile(os.path.join(ROOT, "mcp.json")) or os.path.isdir(os.path.join(ROOT, "hooks")):
-        fail("the plugin must not ship an MCP server or hooks")
+    if os.path.isdir(os.path.join(ROOT, "hooks")):
+        fail("the plugin must not ship hooks")
+    mcp_path = os.path.join(ROOT, "mcp.json")
+    if not os.path.isfile(mcp_path):
+        fail("mcp.json is required for the AKB knowledge MCP server")
+    else:
+        try:
+            mcp = load_json(mcp_path)
+        except (OSError, json.JSONDecodeError) as exc:
+            fail(f"mcp.json: {exc}")
+            mcp = None
+        if isinstance(mcp, dict):
+            servers = mcp.get("mcpServers")
+            if not isinstance(servers, dict) or "akb-knowledge" not in servers:
+                fail("mcp.json must declare mcpServers.akb-knowledge")
+            else:
+                server = servers["akb-knowledge"]
+                if not isinstance(server, dict):
+                    fail("mcpServers.akb-knowledge must be an object")
+                else:
+                    args = server.get("args") or []
+                    blob = json.dumps(server)
+                    if server.get("command") != "cmd.exe":
+                        fail("akb-knowledge command must be cmd.exe for Windows Cursor stdio launch")
+                    if not any("akb_mcp_launch.cmd" in str(a) for a in args):
+                        fail("akb-knowledge args must launch tools/akb_mcp_launch.cmd")
+                    if "${CURSOR_PLUGIN_ROOT}" not in blob:
+                        fail("akb-knowledge must use ${CURSOR_PLUGIN_ROOT} (not a developer absolute path)")
+                    if "AKB_PAT" in blob or "Bearer " in blob:
+                        fail("mcp.json must not embed credentials")
+    plugin_manifest = os.path.join(ROOT, ".cursor-plugin", "plugin.json")
+    try:
+        plugin = load_json(plugin_manifest)
+    except (OSError, json.JSONDecodeError):
+        plugin = {}
+    if plugin.get("mcpServers") not in ("mcp.json", "./mcp.json"):
+        fail("plugin.json mcpServers must point at mcp.json so Cursor loads it")
+    if not os.path.isfile(os.path.join(ROOT, "tools", "akb_mcp_server.py")):
+        fail("missing tools/akb_mcp_server.py")
+    if not os.path.isfile(os.path.join(ROOT, "tools", "akb_mcp_launch.cmd")):
+        fail("missing tools/akb_mcp_launch.cmd")
+    if not os.path.isfile(os.path.join(ROOT, "tools", "akb_mcp_launch.js")):
+        fail("missing tools/akb_mcp_launch.js")
     rule = os.path.join(ROOT, "rules", "apollo-v4.mdc")
     parsed = frontmatter_block(rule) if os.path.isfile(rule) else None
     if not isinstance(parsed, dict):
@@ -245,12 +286,16 @@ def check_rule_and_files():
     for rel in (
         "docs/cursor-plugin.md",
         "rules/apollo-v4.mdc",
+        "tools/akb_mcp_launch.cmd",
+        "tools/akb_mcp_launch.js",
+        "tools/akb_mcp_server.py",
         "tools/resolve_kb.py",
         "tools/classify_build.py",
         "tools/resolve_compiler.py",
         "tools/write_project_files.py",
         "tools/submit_gate.py",
         "tools/wsl_reexec.sh",
+        "mcp.json",
         "skills/apollo-new-project/SKILL.md",
         "skills/apollo-build/SKILL.md",
         "skills/akb-lesson/SKILL.md",

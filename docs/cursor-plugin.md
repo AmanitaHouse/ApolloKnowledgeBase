@@ -25,8 +25,13 @@ After installation, Cursor Agent can run three skills:
 | `apollo-build` | `/apollo-build` | Find ApolloCrossDev, build with the classified non-uploading command, fix the cause of diagnostics |
 | `akb-lesson` | `/akb-lesson` | Draft a lesson, validate it, and submit only after you approve |
 
+The plugin also ships a read-only MCP server (`akb-knowledge`) that searches
+and reads the packaged knowledge articles. Skills remain the primary
+workflow for project setup and builds; MCP is for targeted document lookup.
+
 The plugin does not copy the knowledge base into the prompt. The agent reads
-`AGENTS.md` and then the files that document says to read.
+`AGENTS.md` and then the files that document says to read, or calls the MCP
+tools when those are enabled.
 
 A short rule, `rules/apollo-v4.mdc`, is available when the work is about the
 68080, SAGA, ApolloOS, AmigaOS on V4, or ApolloCrossDev. It is not applied to
@@ -36,13 +41,19 @@ unrelated projects.
 
 - Cursor with local plugin imports allowed. On Enterprise, an admin controls
   this under Dashboard, Settings, Security and Identity, Marketplace and Plugins.
-- Python 3. `tools/check_frontmatter.py` and `tools/check_links.py`
+- Python 3 available as `python` when launched through `cmd.exe` (Windows Store
+  app-execution aliases are fine in that path). Cursor starts the MCP server
+  with `cmd.exe /c …/tools/akb_mcp_launch.cmd`, which runs
+  `tools/akb_mcp_server.py`. The server uses the standard library only (no pip
+  install). Optional override: `AKB_PYTHON`. Linux/macOS hosts can point MCP at
+  `node …/akb_mcp_launch.js` or `python3 -u …/akb_mcp_server.py` instead.
+- `tools/check_frontmatter.py` and `tools/check_links.py`
   also need [PyYAML](https://pypi.org/project/PyYAML/). The skill entry
-  points do not import PyYAML. `tools/submit_gate.py` uses the standard
-  library only. Do not install PyYAML into a system or distro Python
-  unless the developer agrees. The host-launch section says how to run
-  the checkers with an interpreter that already has it, or with an
-  isolated virtual environment.
+  points do not import PyYAML. `tools/submit_gate.py` and
+  `tools/akb_mcp_server.py` use the standard library only. Do not install
+  PyYAML into a system or distro Python unless the developer agrees. The
+  host-launch section says how to run the checkers with an interpreter that
+  already has it, or with an isolated virtual environment.
 - Git, for a project submodule.
 - A POSIX shell (`sh`) on Linux, macOS, WSL, and Git Bash. Skill scripts
   are `sh` entry points, the same rule as `CONTRIBUTING.md` section 12.
@@ -138,8 +149,9 @@ manifest at its root. The marketplace file stays at the repository root
 and is not copied into `akb/`.
 
 The package includes the three skills and their assets, `rules/`, the
-programs those skills run, the templates they fill, and the knowledge
-base those skills read when a project has no submodule: `AGENTS.md`,
+programs those skills run, the templates they fill, `mcp.json`,
+`tools/akb_mcp_server.py`, and the knowledge base those skills and the MCP
+server read when a project has no submodule: `AGENTS.md`,
 `CONTRIBUTING.md`, the four pillars, guides, examples, conventions,
 lessons, `sources/`, and this file.
 
@@ -173,11 +185,97 @@ robocopy (Join-Path $PWD "akb") $dest /E /NFL /NDL /NJH /NJS /nc /ns /np
 
 `robocopy` exits 0 through 7 when the copy succeeded. Then reload Curso
 (Developer: Reload Window) and open Customize. You should see the plugin's
-skills `apollo-new-project`, `apollo-build`, and `akb-lesson`, and the rule
-`apollo-v4` set so the agent decides when to apply it.
+skills `apollo-new-project`, `apollo-build`, and `akb-lesson`, the rule
+`apollo-v4` set so the agent decides when to apply it, and the MCP server
+`akb-knowledge` (shown with a `plugin-akb-` prefix in approval prompts).
 
 Replace that folder with a fresh copy after you pull plugin changes, then
 reload again.
+
+## MCP server (read-only knowledge lookup)
+
+### Runtime and transport
+
+| Item | Value |
+|---|---|
+| Transport | Local stdio |
+| Command | `cmd.exe /c ${CURSOR_PLUGIN_ROOT}/tools/akb_mcp_launch.cmd` → `python -u akb_mcp_server.py` |
+| Config | `mcp.json` at the plugin root; `plugin.json` sets `"mcpServers": "mcp.json"` |
+| Credentials | None. No `AKB_PAT`, no remote URL, no secrets in config |
+| Knowledge root | The installed plugin directory (`AKB_PLUGIN_ROOT` / `${CURSOR_PLUGIN_ROOT}`) |
+
+Windows Cursor launches this on the Windows host. It does not go through WSL.
+Skill `sh` entry points still use WSL from PowerShell as documented above; that
+is a separate path from MCP startup.
+
+### Enable and verify in Cursor
+
+1. Install the packaged `akb/` tree under `~/.cursor/plugins/local/akb` (see above).
+2. Reload the window (**Developer: Reload Window**).
+3. Open **Customize** (or MCP settings) and confirm `akb-knowledge` is listed and enabled.
+4. In a new Agent chat, ask for a tool-backed lookup, for example:
+
+   > Using the AKB MCP tool `akb_read_document`, read
+   > `lessons/2026-11-akb-verification.md` and report its title.
+
+5. Confirm the tool call appears in the agent tool record and the title
+   contains `Automated verification of the knowledge base`.
+
+### Tools
+
+| Tool | Purpose |
+|---|---|
+| `akb_get_info` | Plugin root, version, document count (smoke check) |
+| `akb_list_sections` | Section folders and markdown counts |
+| `akb_search` | Case-insensitive search; optional `section`, `limit` |
+| `akb_read_document` | Read one `.md` path relative to the plugin root |
+
+### Offline protocol tests
+
+From a repository checkout (after `python tools/package_cursor_plugin.py`):
+
+```powershell
+python tools/test_akb_mcp.py
+```
+
+```sh
+python3 tools/test_akb_mcp.py
+```
+
+That exercises initialize, `tools/list`, read-only tool calls, invalid
+arguments, missing documents, path traversal rejection, shutdown/restart,
+and launch from the packaged `akb/` copy. Optional Inspector smoke (pinned):
+
+```powershell
+npx --yes @modelcontextprotocol/inspector@0.16.2 --cli python -u tools/akb_mcp_server.py --method tools/list
+```
+
+### Marketplace import vs MCP operation
+
+| Layer | What “pass” means |
+|---|---|
+| Marketplace manifest | Valid `.cursor-plugin/marketplace.json` with `source` `akb` |
+| Local plugin discovery | Plugin visible under Customize after a local copy |
+| MCP configuration | `mcp.json` registered; server name `akb-knowledge` |
+| MCP startup | Server process connects |
+| MCP protocol | Initialize, discovery, and a real tool call succeed |
+| Cursor Agent integration | Agent invokes an AKB MCP tool and uses the result |
+| Personal Marketplace import | Plugin appears after a GitHub marketplace import |
+
+A green local MCP test does not prove the Personal Marketplace importer works.
+A broken marketplace import does not block local MCP validation. Do not change
+a Support-validated marketplace layout only to retry an import that still shows
+zero plugins.
+
+### Troubleshooting MCP
+
+| What you see | What to do |
+|---|---|
+| MCP server missing after install | Confirm `mcp.json` and `tools/akb_mcp_server.py` exist under the local plugin folder. Confirm `plugin.json` has `"mcpServers": "mcp.json"`. Reload the window. |
+| Server fails to start on Windows | In `cmd.exe`, run `python -c "import sys; print(sys.version)"`. Check MCP logs for `akb-mcp: listening`. Set `AKB_PYTHON` if needed. Do not point MCP at WSL unless you deliberately change the command. |
+| Tools missing in Agent | Enable the server under Customize / MCP. Start a **new** Agent conversation after enable. |
+| Duplicate MCP entry | Remove any user-level MCP config that also registers `akb-knowledge` for the same install. |
+| Path or search errors | Paths are relative to the plugin root (`lessons/…`, not a Windows absolute path). |
 
 ## GitHub installation
 
@@ -367,8 +465,11 @@ clone.
 - Skill frontmatter is only `name` and `description`, one description line,
   so Claude and Cursor read the same file. Cursor keys such as
   `disable-model-invocation` are not added.
-- There is no MCP server, hook, or background process. The agent runs the
-  existing scripts with its shell.
+- There is no hook or background process beyond the stdio MCP server Cursor
+  launches when `akb-knowledge` is enabled. Skill workflows still run the
+  existing scripts with the agent shell.
+- The MCP server is read-only local files. It does not write lessons, open
+  pull requests, or replace `/apollo-build` / `/akb-lesson`.
 - No slash commands were added under `commands/`. The skill names are already
   invocable.
 - This repository has no license file. Local use and a GitHub import are
@@ -391,6 +492,7 @@ clone.
 | What you see | What to do |
 |---|---|
 | Skills missing in Customize | Confirm the copy is a real directory at `~/.cursor/plugins/local/akb` with `.cursor-plugin/plugin.json` inside. Reload the window. On Enterprise, ask whether local plugin imports are allowed. |
+| MCP server missing in Customize | Confirm `mcp.json` and `tools/akb_mcp_server.py` were copied with the package. See [MCP troubleshooting](#troubleshooting-mcp). |
 | `PROBLEM=` from `tools/resolve_kb.py` | Follow the `RECOVERY=` lines. An empty `ApolloKnowledgeBase/` folder means the submodule is not initialized. |
 | `PROBLEM=` from `find-acd.sh` | Install ApolloCrossDev or fix `APOLLOCROSSDEV`. Do not point it at a directory without `Compilers/`. A `PROBLEM=` about a documented NDK directory means that path is missing under the reported compiler install; do not substitute `ndk-include`. |
 | `sh` is not recognized in PowerShell | The agent shell is Windows PowerShell. Use the host-launch section: `wsl.exe -e sh` or `wsl.exe -e python3`, with Windows paths translated. Do not call the Windows Store `python` alias. |
@@ -413,7 +515,11 @@ python tools/check_shared_workflows.py
 python tools/package_cursor_plugin.py --check
 python tools/check_cursor_plugin.py
 python tools/check_claude_plugin.py
+python tools/test_akb_mcp.py
 ```
+
+`test_akb_mcp.py` is the MCP protocol suite. It needs only the standard
+library and a packaged `akb/` tree. It does not load Cursor.
 
 `check_frontmatter.py`, `check_links.py` and `check_skills.py` are the
 content and skill checks from `CONTRIBUTING.md`. `docs/cursor-plugin.md` is

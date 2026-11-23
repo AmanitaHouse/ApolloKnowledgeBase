@@ -55,6 +55,9 @@ CONTENT_FILES = (
     ".github/CODEOWNERS.base",
 )
 TOOL_FILES = (
+    "akb_mcp_launch.cmd",
+    "akb_mcp_launch.js",
+    "akb_mcp_server.py",
     "check_frontmatter.py",
     "check_links.py",
     "kblib.py",
@@ -68,6 +71,7 @@ TOOL_FILES = (
 )
 REQUIRED_PACKAGE_PATHS = (
     ".cursor-plugin/plugin.json",
+    "mcp.json",
     "PACKAGE.txt",
     "AGENTS.md",
     "CONTRIBUTING.md",
@@ -88,6 +92,9 @@ REQUIRED_PACKAGE_PATHS = (
     "templates/repo/AGENTS.md",
     "templates/repo/CLAUDE.md",
     "templates/files/lesson.md",
+    "tools/akb_mcp_launch.cmd",
+    "tools/akb_mcp_launch.js",
+    "tools/akb_mcp_server.py",
     "tools/resolve_kb.py",
     "tools/classify_build.py",
     "tools/resolve_compiler.py",
@@ -186,6 +193,7 @@ def expected_files():
         files[rel] = _read(os.path.join(ROOT, "tools", name), rel)
     manifest = ".cursor-plugin/plugin.json"
     files[manifest] = _read(os.path.join(ROOT, manifest), manifest)
+    files["mcp.json"] = _read(os.path.join(ROOT, "mcp.json"), "mcp.json")
     files["PACKAGE.txt"] = MARKER.encode("ascii")
     return files
 
