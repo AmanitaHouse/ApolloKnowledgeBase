@@ -21,6 +21,7 @@ sources:
   - "Gunnar (core developer), answers to questions on the guidelines, 2026-11-03"
   - "Gunnar (core developer), memory controller width, 2026-11-04"
   - "WDrijver (maintainer), same core on every V4 model, 2026-11-04"
+  - "Gunnar (core developer), Simply 68080 coding guidelines, version of 2026-11-23"
 ---
 
 ## Summary
@@ -107,6 +108,11 @@ Copy of a 156 x 2464-byte shape (M):
   cache are free (official).
 - A misaligned **destination** costs 1.7–1.8x; a misaligned source only
   0–13 %.
+- Gunnar (G, 2026-11-23): misaligned reads and writes have no penalty, a
+  read may span two cache lines, writes are combined into 16-byte chunks,
+  and copies under 1 KB need no alignment code. The "no penalty" for writes
+  conflicts with the 1.7–1.8x measured above (M, Core 12841); to be
+  re-measured.
 - Copies are memory-bound at about 3 bytes per cycle: optimising a blit copy
   gained only 3–10 %.
 - A `.b`/`.w` write into a register also reads its old value: an extra
@@ -127,7 +133,8 @@ Copy of a 156 x 2464-byte shape (M):
 
 ## Do / Don't
 
-- DO align the destination of copies and fills.
+- DO align the destination of copies and fills of 1 KB or more (under 1 KB,
+  use a simple loop, G).
 - DO read memory densely and in address order.
 - DON'T chase pointers over large data, or use big lookup tables read at
   random.

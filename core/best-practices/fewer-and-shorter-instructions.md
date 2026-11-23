@@ -15,8 +15,10 @@ related:
   - core/best-practices/code-size-and-placement.md
   - core/cpu-68080/prm/integer/moviw.md
   - core/cpu-68080/prm/integer/addiw.md
+  - core/cpu-68080/prm/integer/cmpiw.md
 sources:
   - "Gunnar (core developer), Simply 68080 coding guidelines, draft (2026-11-03), coding rules 1 and 2"
+  - "Gunnar (core developer), Simply 68080 coding guidelines, version of 2026-11-23, coding rules 1 and 2"
 ---
 
 ## Goal
@@ -42,18 +44,24 @@ fit more instructions in a group and in the I-cache.
 
 2. **Then use the shortest encoding available** (G):
 
-   | Operation | Longest to shortest |
-   |---|---|
-   | Load an immediate | `move.l #imm` → `moviw.l #imm` → `moveq #imm` |
-   | Add an immediate | `addi.l #imm` → `addiw.l #imm` → `addq.l #imm` |
-   | Walk memory | `d16(An)` → `(An)+` |
+   | Instruction | Size | Immediate range | Destination |
+   |---|---|---|---|
+   | `move.l #imm,<ea>` | 6 bytes | any 32-bit value | any |
+   | `moviw.l #imm,<ea>` | 4 bytes | sign-extended 16-bit | any |
+   | `moveq #imm,Dn` | 2 bytes | sign-extended 8-bit | data registers only |
+   | `addi.l #imm,<ea>` | 6 bytes | any 32-bit value | any |
+   | `addiw.l #imm,<ea>` | 4 bytes | sign-extended 16-bit | any |
+   | `addq.l #imm,<ea>` | 2 bytes | 1–8 | any |
+   | `cmpi.l #imm,<ea>` | 6 bytes | any 32-bit value | any |
+   | `cmpiw.l #imm,<ea>` | 4 bytes | sign-extended 16-bit | any |
 
-   `(An)+` is often better than `d16(An)`: it is shorter, and the EA unit
-   updates the pointer for free.
+   Walking memory: `(An)+` is often better than `d16(An)`.
 
-The guideline writes `MOVI.L`; the PRM names the instruction `MOVIW.L` (see
-[prm/integer/moviw.md](../cpu-68080/prm/integer/moviw.md), and don't use its
-LineA encoding).
+   `(An)+` is shorter, and the EA unit updates the pointer for free.
+
+See [prm/integer/moviw.md](../cpu-68080/prm/integer/moviw.md) (don't use its
+LineA encoding), [prm/integer/addiw.md](../cpu-68080/prm/integer/addiw.md)
+and [prm/integer/cmpiw.md](../cpu-68080/prm/integer/cmpiw.md).
 
 ## Evidence
 

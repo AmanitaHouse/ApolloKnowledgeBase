@@ -19,6 +19,7 @@ related:
 sources:
   - "Gunnar (core developer), Simply 68080 coding guidelines, draft (2026-11-03)"
   - "Gunnar (core developer), answers to questions on the guidelines, 2026-11-03"
+  - "Gunnar (core developer), Simply 68080 coding guidelines, version of 2026-11-23"
 ---
 
 ## Summary
@@ -52,6 +53,15 @@ the ALUs that own the data registers. Most cores run 2 pipes; 3 are planned.
 | Two EA units | The 16 address registers (A0–A7 and B0–B7) | `lea (ea),An`, `adda.w #imm,An`, `suba.l An/Dn,An`, `addq #n,An`, `subq #n,An`, `movea #imm,An`; the updates of `(An)+` and `-(An)` | An, Dn, `#imm` | Only An, and the address of the memory access |
 | ALUs (most instructions) | The data registers | Everything else | Registers, `#imm`, memory | Dn or memory |
 
+- `bra.s`, `bra.w` and `bra.l` (8-, 16- and 32-bit PC distance) are never
+  mispredicted, typically take 1 cycle, and can be the last instruction of a
+  group, so they run together with other instructions (G, 2026-11-23).
+- `bsr.s`, `bsr.w` and `bsr.l` typically take 1 cycle (G, 2026-11-23).
+- `dbra.w` (16-bit counter) and `dbra.l` (32-bit counter) take a single
+  cycle and can be the last instruction of a group (G, 2026-11-23). The
+  counter can be any data register D0–D31 (G, 2026-11-23; see
+  [bank-prefix.md](bank-prefix.md) for D8–D31 = E0–E23). See
+  [close-loops-with-dbra.md](../best-practices/close-loops-with-dbra.md).
 - `jmp (An)` is computed by the EA unit and takes much longer than the
   branches in the first row.
 - `rts` is very fast as long as the return address on the stack is not
