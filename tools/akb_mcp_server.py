@@ -2,8 +2,9 @@
 """Stdio MCP server for the ApolloKnowledgeBase Cursor plugin.
 
 Exposes read-only tools over the plugin's shipped knowledge articles.
-Protocol messages go to stdout (Content-Length framed JSON-RPC).
-Diagnostics go to stderr only.
+Protocol messages go to stdout as UTF-8 newline-delimited JSON-RPC.
+Each message is one JSON object followed by a newline. Diagnostics go to
+stderr only.
 
 No network, no credentials. The knowledge root is the plugin directory
 that contains this file (…/tools/akb_mcp_server.py → plugin root), or
@@ -18,9 +19,17 @@ import sys
 import traceback
 from typing import Any
 
-PROTOCOL_VERSION = "2024-11-05"
+# Newest revision this server speaks. Clients that send an older supported
+# revision get that revision echoed back.
+SUPPORTED_PROTOCOL_VERSIONS = (
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26",
+    "2024-11-05",
+)
+PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0]
 SERVER_NAME = "akb-knowledge"
-SERVER_VERSION = "1.0.0"
+SERVER_VERSION = "1.0.1"
 
 # Top-level folders that are searchable knowledge (not skills/tools/ops).
 SECTIONS = (
@@ -52,42 +61,34 @@ def eprint(*args: Any) -> None:
 
 
 def read_message() -> dict[str, Any] | None:
-    headers: dict[str, str] = {}
+    """Read one newline-delimited JSON-RPC message. None means stdin closed."""
     while True:
         line = sys.stdin.buffer.readline()
         if not line:
             return None
-        if line in (b"\r\n", b"\n"):
-            break
         try:
-            text = line.decode("ascii", errors="replace").rstrip("\r\n")
-        except Exception:
-            return None
-        if ":" not in text:
+            text = line.decode("utf-8-sig").strip()
+        except UnicodeDecodeError as exc:
+            eprint(f"akb-mcp: invalid UTF-8 line: {exc}")
             continue
-        key, value = text.split(":", 1)
-        headers[key.strip().lower()] = value.strip()
-    length_s = headers.get("content-length")
-    if not length_s:
-        return None
-    try:
-        length = int(length_s)
-    except ValueError:
-        return None
-    body = sys.stdin.buffer.read(length)
-    if len(body) != length:
-        return None
-    try:
-        return json.loads(body.decode("utf-8"))
-    except json.JSONDecodeError as exc:
-        eprint(f"akb-mcp: invalid JSON body: {exc}")
-        return None
+        if not text:
+            continue
+        try:
+            msg = json.loads(text)
+        except json.JSONDecodeError as exc:
+            eprint(f"akb-mcp: invalid JSON line: {exc}")
+            continue
+        if not isinstance(msg, dict):
+            eprint("akb-mcp: ignored non-object JSON line")
+            continue
+        return msg
 
 
 def write_message(payload: dict[str, Any]) -> None:
     raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    sys.stdout.buffer.write(f"Content-Length: {len(raw)}\r\n\r\n".encode("ascii"))
-    sys.stdout.buffer.write(raw)
+    if b"\n" in raw or b"\r" in raw:
+        raise ValueError("JSON-RPC message must be a single line")
+    sys.stdout.buffer.write(raw + b"\n")
     sys.stdout.buffer.flush()
 
 
@@ -397,9 +398,10 @@ def handle_request(msg: dict[str, Any]) -> None:
         client_version = ""
         if isinstance(params, dict):
             client_version = str(params.get("protocolVersion") or "")
-        negotiated = PROTOCOL_VERSION
-        if client_version in {PROTOCOL_VERSION, "2025-03-26", "2025-06-18"}:
-            negotiated = client_version if client_version == PROTOCOL_VERSION else PROTOCOL_VERSION
+        if client_version in SUPPORTED_PROTOCOL_VERSIONS:
+            negotiated = client_version
+        else:
+            negotiated = PROTOCOL_VERSION
         ok(
             req_id,
             {

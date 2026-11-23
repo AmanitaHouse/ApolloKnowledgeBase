@@ -51,6 +51,7 @@ class McpClient:
             env=child_env,
         )
         self._next_id = 1
+        self.last_line = ""
         assert self.proc.stdin and self.proc.stdout
 
     def close(self) -> str:
@@ -72,43 +73,38 @@ class McpClient:
         payload: dict[str, Any] = {"jsonrpc": "2.0", "id": req_id, "method": method}
         if params is not None:
             payload["params"] = params
-        raw = json.dumps(payload).encode("utf-8")
-        assert self.proc.stdin and self.proc.stdout
-        self.proc.stdin.write(f"Content-Length: {len(raw)}\r\n\r\n".encode("ascii"))
-        self.proc.stdin.write(raw)
-        self.proc.stdin.flush()
+        self._write(payload)
         return self._read(req_id)
 
     def notify(self, method: str, params: Any = None) -> None:
         payload: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
         if params is not None:
             payload["params"] = params
-        raw = json.dumps(payload).encode("utf-8")
+        self._write(payload)
+
+    def _write(self, payload: dict[str, Any]) -> None:
+        raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        assert b"\n" not in raw
         assert self.proc.stdin
-        self.proc.stdin.write(f"Content-Length: {len(raw)}\r\n\r\n".encode("ascii"))
-        self.proc.stdin.write(raw)
+        self.proc.stdin.write(raw + b"\n")
         self.proc.stdin.flush()
 
     def _read(self, expect_id: int) -> dict[str, Any]:
         assert self.proc.stdout
         deadline = time.time() + TIMEOUT
-        headers: dict[str, str] = {}
         while time.time() < deadline:
             line = self._readline(deadline)
-            if line in (b"\r\n", b"\n"):
-                break
-            text = line.decode("ascii", errors="replace").rstrip("\r\n")
-            if ":" in text:
-                key, value = text.split(":", 1)
-                headers[key.strip().lower()] = value.strip()
-        else:
-            raise TimeoutError("timed out waiting for MCP headers")
-        length = int(headers["content-length"])
-        body = self._readexact(length, deadline)
-        msg = json.loads(body.decode("utf-8"))
-        if msg.get("id") != expect_id:
-            raise AssertionError(f"id mismatch: expected {expect_id}, got {msg.get('id')}")
-        return msg
+            text = line.decode("utf-8").strip()
+            if not text:
+                continue
+            self.last_line = text
+            if text.lower().startswith("content-length") or not text.startswith("{"):
+                raise AssertionError(f"response is not newline-delimited JSON: {text[:80]!r}")
+            msg = json.loads(text)
+            if msg.get("id") != expect_id:
+                raise AssertionError(f"id mismatch: expected {expect_id}, got {msg.get('id')}")
+            return msg
+        raise TimeoutError("timed out waiting for JSON line")
 
     def _readline(self, deadline: float) -> bytes:
         assert self.proc.stdout
@@ -117,28 +113,13 @@ class McpClient:
             ch = self.proc.stdout.read(1)
             if not ch:
                 if self.proc.poll() is not None:
-                    raise EOFError("MCP server exited while reading headers")
+                    raise EOFError("MCP server exited while reading a line")
                 time.sleep(0.01)
                 continue
             buf.extend(ch)
             if buf.endswith(b"\n"):
                 return bytes(buf)
-        raise TimeoutError("timed out reading header line")
-
-    def _readexact(self, n: int, deadline: float) -> bytes:
-        assert self.proc.stdout
-        buf = bytearray()
-        while len(buf) < n:
-            if time.time() >= deadline:
-                raise TimeoutError("timed out reading MCP body")
-            chunk = self.proc.stdout.read(n - len(buf))
-            if not chunk:
-                if self.proc.poll() is not None:
-                    raise EOFError("MCP server exited while reading body")
-                time.sleep(0.01)
-                continue
-            buf.extend(chunk)
-        return bytes(buf)
+        raise TimeoutError("timed out reading a line")
 
 
 def tool_text(msg: dict[str, Any]) -> str:
@@ -164,9 +145,15 @@ def test_initialize_and_tools() -> McpClient:
     record(
         result.get("protocolVersion") == "2024-11-05"
         and (result.get("serverInfo") or {}).get("name") == "akb-knowledge"
-        and "tools" in (result.get("capabilities") or {}),
+        and "tools" in (result.get("capabilities") or {})
+        and client.last_line.startswith("{")
+        and "content-length" not in client.last_line.lower(),
         "initialize negotiates protocol and capabilities",
         str(result.get("serverInfo")),
+    )
+    record(
+        "\n" not in client.last_line and not client.last_line.lower().startswith("content-length"),
+        "wire format is one newline-delimited JSON object",
     )
     client.notify("notifications/initialized")
     listed = client.request("tools/list")
@@ -371,25 +358,24 @@ def _stdio_initialize(command: list[str], label: str) -> None:
             "clientInfo": {"name": "akb-mcp-test", "version": "0.0.1"},
         },
     }
-    raw = json.dumps(payload).encode("utf-8")
-    proc.stdin.write(f"Content-Length: {len(raw)}\r\n\r\n".encode("ascii") + raw)
+    raw = json.dumps(payload, separators=(",", ":")).encode("utf-8") + b"\n"
+    proc.stdin.write(raw)
     proc.stdin.flush()
     deadline = time.time() + TIMEOUT
-    headers: dict[str, str] = {}
+    line = bytearray()
     while time.time() < deadline:
-        line = proc.stdout.readline()
-        if not line:
+        ch = proc.stdout.read(1)
+        if not ch:
+            if proc.poll() is not None:
+                break
+            time.sleep(0.01)
+            continue
+        line.extend(ch)
+        if line.endswith(b"\n"):
             break
-        if line in (b"\r\n", b"\n"):
-            break
-        text = line.decode("ascii", errors="replace").rstrip("\r\n")
-        if ":" in text:
-            key, value = text.split(":", 1)
-            headers[key.strip().lower()] = value.strip()
-    ok_headers = "content-length" in headers
-    body = b""
-    if ok_headers:
-        body = proc.stdout.read(int(headers["content-length"]))
+    text = bytes(line).decode("utf-8", errors="replace").strip()
+    body = text.encode("utf-8")
+    ok_line = text.startswith("{") and "content-length" not in text.lower()
     proc.stdin.close()
     try:
         proc.wait(timeout=5)
@@ -398,10 +384,44 @@ def _stdio_initialize(command: list[str], label: str) -> None:
         proc.wait(timeout=5)
     stderr = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
     record(
-        ok_headers and b"akb-knowledge" in body,
+        ok_line and b"akb-knowledge" in body and b"2024-11-05" in body,
         f"{label} completes initialize",
         stderr.splitlines()[0] if stderr else "",
     )
+
+
+def test_current_protocol_echo() -> None:
+    client = McpClient()
+    try:
+        init = client.request(
+            "initialize",
+            {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {"name": "akb-mcp-test", "version": "0.0.1"},
+            },
+        )
+        result = init.get("result") or {}
+        record(
+            result.get("protocolVersion") == "2025-11-25"
+            and client.last_line.startswith("{")
+            and "\n" not in client.last_line,
+            "initialize echoes 2025-11-25 on one JSON line",
+            str(result.get("protocolVersion")),
+        )
+        client.notify("notifications/initialized")
+        read = client.request(
+            "tools/call",
+            {"name": "akb_read_document", "arguments": {"path": KNOWN_DOC}},
+        )
+        body = json.loads(tool_text(read))
+        record(
+            body.get("title") == "Automated verification of the knowledge base, and the first V4 test runs",
+            "newline client reads verification lesson title",
+            body.get("title", "")[:80],
+        )
+    finally:
+        client.close()
 
 
 def test_cmd_launcher() -> None:
@@ -455,6 +475,7 @@ def main() -> int:
         client.close()
     test_missing_root()
     test_restart()
+    test_current_protocol_echo()
     test_cmd_launcher()
     test_node_launcher()
     test_packaged_copy_launch()
