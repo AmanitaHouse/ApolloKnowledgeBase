@@ -2704,6 +2704,43 @@ def check_build_readiness():
                 fail(f"v10-out-of-tree readiness missing block text:\n{text}")
             if "does not use APOLLOCROSSDEV" not in text:
                 fail(f"v10-out-of-tree readiness missing APOLLOCROSSDEV warning:\n{text}")
+            if "ApolloCrossDev/Projects/{project-name}" not in text:
+                fail(f"v10-out-of-tree readiness lost placeholder notation:\n{text}")
+            if "ApolloCrossDev/Projects/name" in text:
+                fail(f"v10-out-of-tree readiness flattened placeholder to literal path:\n{text}")
+            if "<" in text or ">" in text:
+                fail(f"v10-out-of-tree readiness left angle brackets in AGENTS.md:\n{text}")
+            assessment = resolve_compiler.assess_build_readiness(
+                open(os.path.join(project, "Makefile"), encoding="utf-8").read(),
+                project,
+                acd_root=acd,
+                env=env,
+                home=home,
+            )
+            if assessment["ready"] or assessment["compiler"]["status"] != "unresolved":
+                fail(f"v10-out-of-tree readiness compiler state changed: {assessment}")
+            if assessment["ndk"]["status"] != "unresolved":
+                fail(f"v10-out-of-tree readiness NDK state changed: {assessment}")
+            sanitized = resolve_compiler.blocked_build_body(
+                "make compile",
+                {
+                    "compiler": {
+                        "status": "unresolved",
+                        "shape": "v10_relative",
+                        "supports_apollocrossdev": False,
+                        "reason": (
+                            "v1.0 PREFIX resolves to /tmp/<tag>/Compilers/GCC-6.50-Stable. "
+                            "Place the project under ApolloCrossDev/Projects/{project-name}."
+                        ),
+                    },
+                    "ndk": {"status": "unresolved", "reason": ""},
+                    "ready": False,
+                },
+            )
+            if "ApolloCrossDev/Projects/{project-name}" not in sanitized:
+                fail(f"blocked_build_body lost placeholder notation:\n{sanitized}")
+            if "<" in sanitized or ">" in sanitized:
+                fail(f"blocked_build_body allowed raw angle brackets from input:\n{sanitized}")
             if not os.path.isfile(os.path.join(project, "main.c")):
                 fail("v10-out-of-tree readiness lost the starter")
             if "NOTE=build-readiness: compilation is blocked" not in result.stdout:
@@ -2860,6 +2897,17 @@ def check_build_readiness():
                 fail(f"missing NDK AGENTS.md missing NDK blocker:\n{agents}")
             if "ndk-include" not in agents:
                 fail(f"missing NDK AGENTS.md must warn against ndk-include:\n{agents}")
+            if "<" in agents or ">" in agents:
+                fail(f"missing NDK AGENTS.md left angle brackets:\n{agents}")
+            assessment = resolve_compiler.assess_build_readiness(
+                open(os.path.join(project, "Makefile"), encoding="utf-8").read(),
+                project,
+                acd_root=acd,
+                env=env,
+                home=home,
+            )
+            if assessment["ready"] or assessment["compiler"]["status"] != "ready" or assessment["ndk"]["status"] != "absent":
+                fail(f"missing NDK readiness state changed: {assessment}")
         finally:
             shutil.rmtree(acd, ignore_errors=True)
             shutil.rmtree(project, ignore_errors=True)
