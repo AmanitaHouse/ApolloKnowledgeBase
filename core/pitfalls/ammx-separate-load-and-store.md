@@ -26,6 +26,7 @@ sources:
   - "Gunnar (core developer), AMMX operand forms, 2026-11-24"
   - "Apollo 68080 PRM (sources/official/AC68080PRM.odt), AMMX format page"
   - "vasm 2.0g (ApolloCrossDev GCC-6.50-Dev), test assembly of the forms below, 2026-11-24"
+  - "Gunnar (core developer), answers on the guidelines, 2026-11-24"
 ---
 
 ## Symptom
@@ -96,8 +97,10 @@ An immediate is an operand too:
   `paddb #$0101,d1,d2` assembles silently to a 64-bit immediate
   `$0000000000000101` (12-byte instruction), so only the lowest lanes get
   the value. `paddb #$0101.w,d1,d2` does the same, with a "trailing garbage"
-  warning. Gunnar suggests `#imm.w` as the syntax (G); vasm does not
-  support it.
+  warning. Gunnar prefers `#$0101.w`, the 68K convention of qualifying
+  the value, as in `move.l $04.w,a6` (G, 2026-11-24); vasm 2.0g does not
+  support it for AMMX. The team is discussing the syntax, so this may
+  change: check the vasm version you use.
 - **Names:** Gunnar calls the store instructions VSTORE, VSTOREM,
   VSTOREC, VSTOREM2 and VSTOREM3. vasm accepts only the PRM names `store`,
   `storem`, `storec`, `storeilm` (the PRM: "also called storem2") and

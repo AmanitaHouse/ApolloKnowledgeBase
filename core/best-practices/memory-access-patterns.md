@@ -19,6 +19,7 @@ sources:
   - "Gunnar (core developer), Simply 68080 coding guidelines, draft (2026-11-03)"
   - "Gunnar (core developer), answers to questions on the guidelines, 2026-11-03"
   - "Gunnar (core developer), Simply 68080 coding guidelines, version of 2026-11-23"
+  - "Gunnar (core developer), answers on the guidelines, 2026-11-24"
 ---
 
 ## Goal
@@ -37,9 +38,10 @@ overlap.
 - Put data that is used together in the same 64-byte line.
 - Don't use a table for anything you can compute in 16 cycles or less (G,
   2026-11-03). MUL and DIV beat a table; a SIN table makes sense. Keep the
-  tables you do use small and hot. Gunnar puts a table miss at around 16
-  cycles of stall, so 10 cycles of arithmetic can beat a table access
-  (G, 2026-11-23); the random miss measured below costs about 27 (M).
+  tables you do use small and hot. A typical table miss costs about 16
+  cycles of stall; use 16 as the reference (G, 2026-11-24). So 10 cycles of
+  arithmetic can beat a table access (G, 2026-11-23). The 27 measured below
+  is a bad case: dependent random reads over 4 MB (M).
 - Avoid rows exactly 64 KB apart: they alias in the cache.
 - Use `touch d8(An,Dn)` 12–15 cycles ahead only for random accesses, never
   on a sequential stream.
