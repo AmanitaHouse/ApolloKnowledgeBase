@@ -11,6 +11,7 @@ applies_to:
   os: [any]
 tags: [68080, ammx, simd, blit, fill, p96]
 related:
+  - core/pitfalls/ammx-separate-load-and-store.md
   - core/cpu-68080/prm/ammx-unit.md
   - core/best-practices/align-copy-destination.md
   - core/pitfalls/ammx-pc-relative-source.md
