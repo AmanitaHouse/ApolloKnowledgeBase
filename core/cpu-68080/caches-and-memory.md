@@ -22,6 +22,7 @@ sources:
   - "Gunnar (core developer), memory controller width, 2026-11-04"
   - "WDrijver (maintainer), same core on every V4 model, 2026-11-04"
   - "Gunnar (core developer), Simply 68080 coding guidelines, version of 2026-11-23"
+  - "Gunnar (core developer), answers on the guidelines, 2026-11-24"
 ---
 
 ## Summary
@@ -86,8 +87,9 @@ The memory controller is part of the core, so it is the same on every V4
 model that runs the same core (see
 [hardware/index.md](../../hardware/index.md)).
 
-The 27 cycles above are one case: dependent random reads over 4 MB. When
-you measure a miss, state these conditions.
+The 27 cycles above are one case: dependent random reads over 4 MB. The
+typical miss, to use as the reference, is about 16 cycles of stall (G,
+2026-11-24). When you measure a miss, state these conditions.
 
 Memory-bound measurements from a core before 12600 (64-bit controller) are
 not comparable with those from Core 12600 and later. All measurements in
@@ -110,9 +112,9 @@ Copy of a 156 x 2464-byte shape (M):
   0–13 %.
 - Gunnar (G, 2026-11-23): misaligned reads and writes have no penalty, a
   read may span two cache lines, writes are combined into 16-byte chunks,
-  and copies under 1 KB need no alignment code. The "no penalty" for writes
-  conflicts with the 1.7–1.8x measured above (M, Core 12841); to be
-  re-measured.
+  and copies under 1 KB need no alignment code. This applies to Core 13000+
+  (G, 2026-11-24); on Core 12841 the 1.7–1.8x above stands (M). To be
+  re-measured on Core 13000+.
 - Copies are memory-bound at about 3 bytes per cycle: optimising a blit copy
   gained only 3–10 %.
 - A `.b`/`.w` write into a register also reads its old value: an extra

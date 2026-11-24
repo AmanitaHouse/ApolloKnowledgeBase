@@ -1835,6 +1835,30 @@ def body(text):
     return text.split("\n---\n", 1)[-1]
 
 
+# Pages the maintainers deprecate while the original PRM still describes
+# them (decision WDrijver, 2026-11-24). The converter generates them as
+# deprecated, with one line at the top of the body that says why.
+DEPRECATED = {
+    "ammx/loadi.md": "core/pitfalls/ammx-separate-load-and-store.md",
+    "ammx/storei.md": "core/pitfalls/ammx-separate-load-and-store.md",
+}
+DEPRECATED_WHY = (
+    "**Deprecated:** don't use this instruction. Gunnar (core developer, "
+    "2026-11-24) calls LOADI and STOREI extremely dangerous and esoteric; "
+    "see [the AMMX load/store pitfall](../../../pitfalls/"
+    "ammx-separate-load-and-store.md). The page below is the PRM text.")
+
+
+def deprecate(text, superseded_by):
+    """Mark a generated page as deprecated: status, superseded_by and a
+    reason line after the GENERATED comment."""
+    text = STATUS_RE.sub("", text)
+    text = text.replace("origin: ", "status: deprecated\n"
+                        f"superseded_by: {superseded_by}\norigin: ", 1)
+    marker = "Do not edit: change the original and regenerate. -->\n"
+    return text.replace(marker, marker + "\n" + DEPRECATED_WHY + "\n", 1)
+
+
 def keep_status(old, new):
     """New text with the status fields of the old text, when the body is
     unchanged. A file keeps the status a maintainer gave it until its body
@@ -1857,7 +1881,11 @@ def main():
     for rel, text in files.items():
         p = os.path.join(out, rel)
         old = open(p, encoding="utf-8").read() if os.path.isfile(p) else None
-        files[rel] = text = keep_status(old, text)
+        if rel in DEPRECATED:
+            text = deprecate(text, DEPRECATED[rel])
+        else:
+            text = keep_status(old, text)
+        files[rel] = text
         if old != text:
             stale.append(rel)
     extra = sorted(existing - set(files))

@@ -89,7 +89,7 @@ frees the bitmap), then the struct (`AllocVec`/`FreeVec` in 44.23).
 | +10 | 1 | front pen (`fp_FrontPen`): colour of the icon label text |
 | +11 | 1 | back pen (`fp_BackPen`) |
 | +12 | 8 | `struct TextAttr`, `ta_Name` pointing to +20 |
-| +20 | n | font name, NUL-terminated (`AllocVec(strlen(name) + 21, MEMF_PUBLIC | MEMF_CLEAR)`) |
+| +20 | n | font name, NUL-terminated (`AllocVec(strlen(name) + 21, MEMF_PUBLIC \| MEMF_CLEAR)`) |
 
 To free a returned struct: `CloseFont()` on +4, then the struct.
 

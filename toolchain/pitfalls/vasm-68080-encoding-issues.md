@@ -13,6 +13,7 @@ tags: [vasm, bank, ammx, encoding, branches, listing]
 related:
   - core/pitfalls/bank-prefix-pitfalls.md
   - core/pitfalls/ammx-pc-relative-source.md
+  - core/pitfalls/ammx-separate-load-and-store.md
   - core/pitfalls/tex-does-not-match-prm.md
   - toolchain/vasm-assembler.md
 sources:

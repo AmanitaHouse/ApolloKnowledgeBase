@@ -20,6 +20,7 @@ sources:
   - "Gunnar (core developer), Simply 68080 coding guidelines, draft (2026-11-03)"
   - "Gunnar (core developer), answers to questions on the guidelines, 2026-11-03"
   - "Gunnar (core developer), Simply 68080 coding guidelines, version of 2026-11-23"
+  - "Gunnar (core developer), answers on the guidelines, 2026-11-24"
 ---
 
 ## Summary
@@ -59,8 +60,10 @@ the ALUs that own the data registers. Most cores run 2 pipes; 3 are planned.
 - `bsr.s`, `bsr.w` and `bsr.l` typically take 1 cycle (G, 2026-11-23).
 - `dbra.w` (16-bit counter) and `dbra.l` (32-bit counter) take a single
   cycle and can be the last instruction of a group (G, 2026-11-23). The
-  counter can be any data register D0–D31 (G, 2026-11-23; see
-  [bank-prefix.md](bank-prefix.md) for D8–D31 = E0–E23). See
+  counter can be any data register D0–D31 (G, 2026-11-23): all ALU
+  (integer) instructions can use the 32 data registers D0–D31, in byte,
+  word and long size (G, 2026-11-24). See [bank-prefix.md](bank-prefix.md)
+  for D8–D31 = E0–E23 and how they are encoded. See
   [close-loops-with-dbra.md](../best-practices/close-loops-with-dbra.md).
 - `jmp (An)` is computed by the EA unit and takes much longer than the
   branches in the first row.

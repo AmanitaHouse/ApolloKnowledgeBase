@@ -134,6 +134,7 @@
 /core/pitfalls/alternating-branch-mispredicted.md @TuKo1982
 /core/pitfalls/alu-to-ea-bubble.md @TuKo1982
 /core/pitfalls/ammx-pc-relative-source.md @TuKo1982
+/core/pitfalls/ammx-separate-load-and-store.md @WDrijver
 /core/pitfalls/ammx-upper-32-bits.md @TuKo1982
 /core/pitfalls/bank-prefix-pitfalls.md @TuKo1982
 /core/pitfalls/cacr-data-cache-bit-ignored.md @WDrijver
