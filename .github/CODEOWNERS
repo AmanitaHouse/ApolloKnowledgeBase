@@ -194,6 +194,7 @@
 /os/libraries/maggie-library-functions.md @WDrijver
 /os/libraries/maggie-library.md @TuKo1982
 /os/libraries/workbench-wbconfig.md @WDrijver
+/os/pitfalls/background-process-leaks-memory.md @WDrijver
 /os/pitfalls/library-globals-shared-between-tasks.md @TuKo1982
 /os/pitfalls/maggie-library-side-effects.md @TuKo1982
 /os/pitfalls/pooled-realloc-shrink-overwrites-pool.md @WDrijver
