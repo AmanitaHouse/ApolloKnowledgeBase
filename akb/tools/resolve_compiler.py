@@ -259,7 +259,7 @@ def resolve_prefix(text, project, acd_root=None, env=None, home=None):
                 f"{resolved} for this project location, which is not the "
                 "ApolloCrossDev Compilers tree. Setting APOLLOCROSSDEV does not "
                 "fix a v1.0 Makefile. Place the project under "
-                "ApolloCrossDev/Projects/<name>, or update ApolloCrossDev for a "
+                "ApolloCrossDev/Projects/{project-name}, or update ApolloCrossDev for a "
                 "v1.2+ template that uses ACD_ROOT."
             )
             return result
