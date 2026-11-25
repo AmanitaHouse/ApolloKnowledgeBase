@@ -19,6 +19,7 @@ related:
 sources:
   - "github.com/WDrijver/ApolloCrossDev README.md"
   - "github.com/WDrijver/ApolloCrossDev GCC-6.50-Dev-Linux.sh"
+  - "github.com/WDrijver/ApolloCrossDev pull request #38 (commit c1fba26 / 57cb85c, 2026-11-25) and issue #32"
   - "WDrijver (ApolloCrossDev maintainer), 2026-11-02"
 ---
 
@@ -55,12 +56,15 @@ C and C++: `-O2 -m68080 -m68881 -ffast-math -fomit-frame-pointer`. Details in
 
 ### What else is installed
 
-- Amiga NDKs 1.3, 3.9 and 3.2 (3.2 is the default), see
-  `toolchain/target-os-headers.md`
-- C runtimes libnix (default) and clib2
-- Libraries and headers: MUI 5, SDL (base, mixer, ttf, image), Vorbis, Ogg,
-  GL, FreeType, Timidity, zlib, minizip, Lua, MPEGA, P96 headers
-- DevPac includes for assembly, in `<prefix>/m68k-amigaos/DevPac`
+- Amiga NDK 3.2 in `<prefix>/m68k-amigaos/ndk-include` (default) and NDK 1.3
+  in `<prefix>/m68k-amigaos/ndk13-include`; ApolloCrossDev does not install
+  `ndk39-include`, see `toolchain/target-os-headers.md`
+- C runtime `libnix` (`-noixemul`, default); ApolloCrossDev does not install
+  `clib2/include`
+- Libraries and headers: MUI 5 (`include/mui`), SDL (base, mixer, ttf, image),
+  Vorbis, Ogg, GL, FreeType, Timidity, zlib, minizip, Lua, MPEGA, P96 headers
+- DevPac includes and libraries for assembly, in
+  `<prefix>/m68k-amigaos/DevPac` (`Include` and `Lib`)
 - ApolloExplorer (`acp`) to upload files to an Apollo V4 over the network
 - bgdbserver, a GDB server that runs on the Apollo V4 for remote debugging
 - ApolloLib in `Projects/ApolloLib`: sound, picture, PIP, pointer, input,
