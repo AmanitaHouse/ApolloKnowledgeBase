@@ -20,6 +20,11 @@ related:
 sources:
   - "Probe programs run remotely on a V4 UniCorn, Core 12856, ApolloOS R10 dev card, 2026-11-25: one run per mode (full speed, TU=3, TU=2, TU=1), each after a power cycle"
   - "ApolloControl 2.23 (28.10.2026) template: TU=TURTLE/N 0=Off, 1=A500, 2=A1200, 3=A4000"
+distilled_into:
+  - core/pitfalls/turtle-mode-counters.md
+  - core/cpu-68080/performance-counters.md
+  - core/cpu-68080/core-at-a-glance.md
+  - guides/testing-on-v4-hardware.md
 ---
 
 ## Project
