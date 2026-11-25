@@ -84,8 +84,8 @@ These files make every agent that opens the project read AKB first.
 - **`AGENTS.md`** (read by most agents): from `KB templates/repo/AGENTS.md`.
   Fill in every `<placeholder>` from step 1 and its defaults, remove the
   template's HTML comments.
-  - **Build and test:** `make compile` to build, `make` to build and upload
-    to the V4 at `$AMIGAHOST`.
+  - **Build and test:** `make` to build on the host; copy the executable
+    to the V4 to run it.
   - **Relevant knowledge base areas:** pick from the table in
     `KB AGENTS.md` section 3. Always `toolchain/`; `os/os-takeover.md` and
     `core/` for os-takeover; the SAGA folders that the program will use;
@@ -130,7 +130,7 @@ Tell the user what you found and let them choose:
 | `PROBLEM=` a binary is missing | The install failed: point the user to `Compilers/GCC-6.50-Dev/_logs/*_err.log` and the reinstall command. Wait until it is fixed. |
 | `UPDATE=checkout` | `git pull` in the ApolloCrossDev folder: quick, brings new Makefile templates, ApolloLib and scripts. If `LOCAL_CHANGES=` is reported, the user decides about those first. Run the pull only with their consent. |
 | `UPDATE=compiler` | Reinstall GCC-6.50-Dev (the command is in the line; `sudo`, about 30 minutes; the user runs it). Say what the newer build changes: the bug table in `KB toolchain/compiler-variants.md`. The user may also continue now and reinstall later. |
-| `TEMPLATE=` older than v1.2 | `git pull` is required: the project needs `make compile` and builds outside ApolloCrossDev. |
+| `TEMPLATE=` older than v1.2, or a `NOTE=` that the template still uploads | `git pull` is required: the project needs the current template, which builds outside ApolloCrossDev and does not upload. |
 | `UPDATES=none` | Say the toolchain is up to date. |
 
 Run the check again after an install or update, until it reports no
@@ -139,10 +139,8 @@ Run the check again after an install or update, until it reports no
 **`APOLLOCROSSDEV`:** the project lives outside `ApolloCrossDev/Projects/`,
 so the Makefile needs it. If the check notes it is unset, offer to add
 `export APOLLOCROSSDEV="<ACD_ROOT>"` to `~/.zshrc` (macOS) or `~/.bashrc`
-(Linux), next to `AMIGAHOST` (the V4's IP address, needed for upload; ask
-for it if that is missing too). Change the file only with the user's
-consent. For this session, pass it on the command line:
-`APOLLOCROSSDEV=<ACD_ROOT> make compile`.
+(Linux). Change the file only with the user's consent. For this session,
+pass it on the command line: `APOLLOCROSSDEV=<ACD_ROOT> make`.
 
 ## 5. Makefile (guided setup)
 
@@ -175,8 +173,7 @@ Copy `assets/gitignore` to `.gitignore`.
 ## 7. Build it (guided setup)
 
 Build as the apollo-build skill describes (`KB skills/apollo-build/SKILL.md`):
-`make compile`. It must end with no errors and no warnings before you
-continue.
+`make`. It must end with no errors and no warnings before you continue.
 
 ## 8. Hand over
 

@@ -58,14 +58,14 @@ fi
 template="$root/Projects/_makefiles/Makefile"
 if [ -f "$template" ]; then
     echo "TEMPLATE=$(sed -n 's/^# ApolloCrossDev Makefile Template //p' "$template" | head -n 1)"
-    grep -q '^compile:' "$template" || echo "NOTE=the Makefile template has no 'make compile' target: update ApolloCrossDev (git pull)"
+    grep -q '^upload_all:' "$template" && echo "NOTE=the Makefile template still uploads to the V4 (older than ApolloCrossDev v1.2 of 2026-11-08): update ApolloCrossDev (git pull)"
 else
     problem "$template is missing"
 fi
 
 if [ -f "$project/Makefile" ]; then
     echo "MAKEFILE=$(sed -n 's/^# ApolloCrossDev Makefile Template //p' "$project/Makefile" | head -n 1)"
-    grep -q '^compile:' "$project/Makefile" || echo "NOTE=the project Makefile has no 'make compile' target; build with: make cleanbefore build"
+    grep -q '^upload_all:' "$project/Makefile" && echo "NOTE=the project Makefile is older than ApolloCrossDev v1.2 of 2026-11-08: plain 'make' also uploads to the V4; build with: make cleanbefore build"
 fi
 
 case $(uname) in Darwin) script=GCC-6.50-Dev-MacOS.sh ;; *) script=GCC-6.50-Dev-Linux.sh ;; esac
