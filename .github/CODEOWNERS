@@ -235,6 +235,7 @@
 /toolchain/pitfalls/gcc-misc-traps.md @TuKo1982
 /toolchain/pitfalls/gcc-mrtd-calling-convention.md @TuKo1982
 /toolchain/pitfalls/gcc-stackswap-defer-pop.md @TuKo1982
+/toolchain/pitfalls/gcc-variadic-taglist-address.md @WDrijver
 /toolchain/pitfalls/libnix-and-header-traps.md @TuKo1982
 /toolchain/pitfalls/vasm-68080-encoding-issues.md @TuKo1982
 /toolchain/pitfalls/vasm-pc-relative-destination.md @TuKo1982
