@@ -22,6 +22,9 @@ sources:
   - "Measured on a V4 UniCorn, Core 12856, v4net.device 3.0, under ApolloOS R9.6 (AROSTCP) and AmigaOS 3.9 (AmiTCP_NG 4.1.8), 2026-11-16"
   - "ApolloOS source: AROSTCP tcp_usrreq.c, tcp_output.c, kern/uipc_socket.c; rom/dos/systemtaglist.c, createnewproc.c"
   - "AmiTCP_NG source (github.com/MW0MWZ/AmiTCP_NG): src/netinet/tcp_usrreq.c, src/net/ng_ifconfig.c, src/kern/uipc_socket.c"
+  - "V4Net source (github.com/ApolloTeam-dev/V4Net) and pull request #1: v4net.device 3.1, MTU 1498 (2026-11-24)"
+  - "Measured on a V4 UniCorn, Core 12856, v4net.device 3.0 and 3.1, under ApolloOS R9.9 (AROSTCP bsdsocket.library 4.57), 2026-11-24 and 2026-11-25"
+  - "WDrijver/ApolloCrossDev issue #33 (GCC-6.50-Dev internal compiler error in bbb pass i)"
 ---
 
 ## Project
@@ -33,6 +36,12 @@ problem: `acp` connections were unstable and `ash` mostly did not respond.
 Worked on by Claude (AI) with WDrijver on 2026-11-16, first under ApolloOS,
 then under AmigaOS 3.9; result: server 1.4.4 in pull request #9, plus
 `mtu=1492` in the AmigaOS interface configuration.
+
+Follow-up on 2026-11-24 and 25, once the `v4net.device` source was public
+(github.com/ApolloTeam-dev/V4Net): the root cause was found in the driver
+and fixed there as `v4net.device` 3.1 (V4Net pull request #1, released as
+3.1-beta in ApolloSoftware). Tested under ApolloOS R9.9; ApolloExplorer
+1.4.5 then dropped its `TCP_MAXSEG` workaround.
 
 ## What went well
 
@@ -53,6 +62,15 @@ then under AmigaOS 3.9; result: server 1.4.4 in pull request #9, plus
   lost, `Search >NIL:` return codes (0 found, 5 not found) and output-free
   commands (`Copy`, `Echo >>`) were enough to back up, check and change
   `DEVS:NetInterfaces/V4net` on a V4 without a working keyboard.
+- **Workarounds first, the structural fix in the right place later.** The
+  workarounds made ApolloExplorer usable the same day; the developer then
+  waited for the driver source instead of piling up more. Reading
+  `v4l_TransmitFrame` explained the exact limit (1512 bytes works, 1513
+  does not), and a driver that reports MTU 1498 fixes every stack and every
+  program at once.
+- **The same test harness proved the driver fix.** ApolloExplorerSrv 1.4.2,
+  which has no workaround, was the test client: with v4net.device 3.0 it
+  hung, with 3.1 and no configuration every scenario passed.
 
 ## What went wrong
 
@@ -68,6 +86,10 @@ then under AmigaOS 3.9; result: server 1.4.4 in pull request #9, plus
   it depended on a socket option one stack has and the other lacks.
 - ApolloExplorerSrv does not start at boot on the test V4, so after a power
   cycle no remote work is possible until someone starts it by hand.
+- The driver did not build with the current GCC-6.50-Dev: an internal
+  compiler error in bebbo's bbb pass `i` on unchanged code, still present
+  after a reinstall. Worked around with `-fbbb=-` for that one file and
+  reported as ApolloCrossDev issue #33.
 
 ## What the AI got wrong
 
@@ -97,6 +119,14 @@ then under AmigaOS 3.9; result: server 1.4.4 in pull request #9, plus
   (`guides/testing-on-v4-hardware.md`); a timeout should be based on that.
 - **Got a protocol constant wrong in its own test tool.** It treated 0 as
   success for `PMT_MKDIR`; the server answers `AT_OK` (1).
+- **Took the OS from the discovery reply again.** The second test V4
+  answered discovery with "AmigaOS / ApolloOS -", and the AI wrote
+  "AmigaOS" into a pull request; it was ApolloOS R9.9. Check `Version` and
+  the TCP/IP stack's files on the machine instead.
+- **Left the version number to someone else without looking.** The AI kept
+  the driver fix at version 3.0 as "unreleased". ApolloSoftware already
+  had 3.0-beta released, so the fix was 3.1; the binaries it built could not
+  be told apart from 3.0 with `Version`.
 
 ## Evidence
 
@@ -112,12 +142,15 @@ then under AmigaOS 3.9; result: server 1.4.4 in pull request #9, plus
 | A shell command started from a priority-8 task starves AROSTCP: no new connection for 9.5 s during `List SYS: ALL` | (M) | Core 12856 | `tests/aetest.py busy` on ApolloOS R9.6; with `SetTaskPri(0)` around `SystemTagList()`: 46 replies, median 56 ms; on AmigaOS 3.9: 89 replies, median 36 ms |
 | A finished session left its server thread alive ~60 s: 30 sessions held 4.6 MB, all back after 90 s | (M) | Core 12856 | `tests/aetest.py churn --avail`; after the fix -19 KB (ApolloOS), -15 KB (AmigaOS) |
 | A header split with a 200 ms gap dropped the connection (50 `FIONREAD` polls without waiting) | (M) | Core 12856 | `tests/aetest.py fault split-header`, before and after |
+| Since 2.97.2 `v4l_TransmitFrame` declares the TX length rounded up to a longword: a 1513/1514-byte frame becomes 1516, 1520 with CRC, over the 1518-byte limit | (SRC) | any | V4Net `source/v4net/v4l.c`, `CHANGELOG.txt` |
+| v4net.device 3.1 (MTU 1498) fixes large replies with no configuration and no application workaround | (M) | Core 12856 | ApolloOS R9.9, ApolloExplorerSrv 1.4.2: `tests/aetest.py` smoke, shell, transfer, concurrent pass; with 3.0 they hang. With 1.4.4: 4 × 200 sessions, 20 transfers up to 10 MB, 6 parallel clients, 0 failures |
 | About one lost packet per 4 MB (1.2 to 1.5 s stall) under ApolloOS; none under AmigaOS | (M) | Core 12856 | Per-chunk arrival times of 4 MB downloads: ApolloOS R9.6 with `TCP_MAXSEG` 1400, 1.1 to 1.25 MB/s; AmigaOS 3.9 with `mtu=1492`, 4.2 to 4.3 MB/s, largest gap 15 ms |
 
 ## Candidates for distillation
 
 - `os/pitfalls/v4net-full-size-frames-lost.md`: added together with this
-  lesson. Deprecate it once a fixed `v4net.device` is released.
+  lesson, updated for the fix in v4net.device 3.1. Deprecate it once 3.1
+  is the regular release (out of beta) and tested under AmigaOS.
 - **`SystemTagList()` ignores `NP_Priority`.** First check AmigaOS 3.x: if it
   honours the tag, this is an ApolloOS bug for an issue in
   ApolloTeam-dev/ApolloOS.R10 (CONTRIBUTING.md section 2); if it does not,
