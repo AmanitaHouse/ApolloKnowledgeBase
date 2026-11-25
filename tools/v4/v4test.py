@@ -262,7 +262,7 @@ def build(test_dir, name, variant, opts, out_dir):
     prefix = acd_prefix()
     tgt = os.path.join(prefix, "m68k-amigaos")
     incl = ["-I" + os.path.join(tgt, d) for d in
-            ("libnix/include", "sys-include", "ndk32-include/Include_H")]
+            ("libnix/include", "sys-include", "ndk-include")]
     objs = []
     for s in sorted(glob.glob(os.path.join(test_dir, "*.s"))):
         o = os.path.join(out_dir, os.path.basename(s)[:-2] + ".o")

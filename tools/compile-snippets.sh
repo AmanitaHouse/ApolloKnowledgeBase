@@ -27,7 +27,7 @@ AS="${AS:-$PREFIX/bin/vasmm68k_mot}"
 
 OPTS="-O2 -m68080 -m68881 -ffast-math -fomit-frame-pointer"
 AOPTS="-m68080 -m68881 -opt-speed"
-INCL="-I$PREFIX/$TARGET/libnix/include -I$PREFIX/$TARGET/sys-include -I$PREFIX/$TARGET/ndk32-include/Include_H"
+INCL="-I$PREFIX/$TARGET/libnix/include -I$PREFIX/$TARGET/sys-include -I$PREFIX/$TARGET/ndk-include"
 [ -n "$APOLLOLIB" ] && INCL="$INCL -I$APOLLOLIB"
 AINCL="-I$PREFIX/$TARGET/DevPac/Include"
 

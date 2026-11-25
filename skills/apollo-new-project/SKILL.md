@@ -151,7 +151,7 @@ Copy `<ACD_ROOT>/Projects/_makefiles/Makefile` and change only:
 | Line | Set to |
 |---|---|
 | `PROJECT_NAME` | the name |
-| `C_INCL_NDK` | the `ndk39-include` line: AmigaOS 3.9 is a target, so a function that 3.9 lacks gives a compile error instead of a crash on 3.9 (`KB toolchain/target-os-headers.md`) |
+| `C_INCL_NDK` | keep the `ndk-include` line (NDK 3.2). ApolloCrossDev installs no NDK 3.9: when AmigaOS 3.9 is a target, check every OS function the program calls against `KB os/apolloos-and-amigaos-on-v4.md` instead (`KB toolchain/target-os-headers.md`) |
 | `C_COMPILER` | the `m68k-amigaos-g++` line for C++; the template does not collect `.cpp` files, so add them as `KB toolchain/project-makefile.md` says |
 
 Keep `APOLLOLIB`, `C_OPTIONS` and `S_FLAGS` as they are.
