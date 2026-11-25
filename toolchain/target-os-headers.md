@@ -16,13 +16,16 @@ sources:
   - "github.com/WDrijver/ApolloCrossDev Projects/_makefiles/Makefile"
   - "github.com/WDrijver/ApolloCrossDev GCC-6.50-Dev-Linux.sh"
   - "WDrijver (ApolloCrossDev maintainer), 2026-11-02"
+  - "github.com/WDrijver/ApolloCrossDev pull request #38 (2026-11-25, fixes issue #32): the GCC-6.50 scripts install ndk-include (NDK 3.2) and ndk13-include, not ndk32-include or ndk39-include"
+  - "lessons/2026-11-lide-device.md (found the missing folders, 2026-11-24)"
 ---
 
 ## Summary
 
-ApolloCrossDev installs the Amiga NDK headers for versions 1.3, 3.9 and 3.2.
-NDK 3.2 is the default. Choose the NDK that matches the oldest target OS of
-the project.
+The GCC-6.50 scripts of ApolloCrossDev install the Amiga NDK headers for
+versions 3.2 (the default) and 1.3. They do not install NDK 3.9. For a
+project that also targets AmigaOS 3.9, check by hand that every OS function
+it calls exists on 3.9.
 
 ## Details
 
@@ -30,9 +33,14 @@ the project.
 
 | NDK | Include path | Target OS |
 |---|---|---|
-| 3.2 (default) | `<prefix>/m68k-amigaos/ndk32-include/Include_H` | `amigaos-3.2`, `apolloos-r10` |
-| 3.9 | `<prefix>/m68k-amigaos/ndk39-include` | `amigaos-3.9` |
+| 3.2 (default) | `<prefix>/m68k-amigaos/ndk-include` | `amigaos-3.2`, `apolloos-r10`, and `amigaos-3.9` with a manual check |
 | 1.3 | `<prefix>/m68k-amigaos/ndk13-include` | none of the supported targets |
+
+`ndk-include` is also on GCC's built-in include path, so a wrong or missing
+`-I` for the NDK does not give an error: GCC silently uses NDK 3.2. The
+Makefile template up to ApolloCrossDev pull request #38 (2026-11-25) pointed
+at `ndk32-include/Include_H` and an `ndk39-include` line; neither folder is
+installed.
 
 ApolloCrossDev builds its runtime libraries against NDK 3.2
 (`make all NDK=3.2`).
@@ -41,9 +49,10 @@ ApolloCrossDev builds its runtime libraries against NDK 3.2
 
 - Targets `amigaos-3.2` and/or `apolloos-r10`: NDK 3.2. ApolloOS R10 aims to
   be compatible with AmigaOS 3.2.x.
-- Target includes `amigaos-3.9`: NDK 3.9, so functions that AmigaOS 3.9 does
-  not have are not declared, and calling them gives a compiler warning or
-  error instead of a crash at run time.
+- Target includes `amigaos-3.9`: NDK 3.2, as there is no NDK 3.9 install.
+  The compiler then does not catch functions that AmigaOS 3.9 lacks, so
+  check each OS function the program calls against
+  `os/apolloos-and-amigaos-on-v4.md`.
 
 ### Why it matters
 
@@ -58,6 +67,8 @@ run time when it calls a function that 3.9 does not have.
 
 ## Do / Don't
 
-- DO pick the NDK from the project's target OS list.
+- DO use `ndk-include` (NDK 3.2) for every supported target.
+- DON'T point `-I` at `ndk32-include` or `ndk39-include`: they are not
+  installed, and GCC falls back to NDK 3.2 without a warning.
 - DON'T call a function that is missing in one of the project's target
   operating systems.
