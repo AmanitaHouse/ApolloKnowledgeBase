@@ -49,7 +49,7 @@ more on code generation, [gcc-code-generation-for-68080.md](best-practices/gcc-c
 | Runtime | Option | Include path |
 |---|---|---|
 | libnix (default) | `-noixemul` | `<prefix>/m68k-amigaos/libnix/include` |
-| clib2 | `-mcrt=clib2` | `<prefix>/m68k-amigaos/clib2/include` |
+| clib2 | `-mcrt=clib2` | `<prefix>/m68k-amigaos/clib2/include`, not installed by the GCC-6.50 scripts |
 
 Pass the runtime option both when compiling and when linking.
 
@@ -62,12 +62,18 @@ and NDK 3.2:
 -I. \
 -I<prefix>/m68k-amigaos/libnix/include \
 -I<prefix>/m68k-amigaos/sys-include \
--I<prefix>/m68k-amigaos/ndk32-include/Include_H
+-I<prefix>/m68k-amigaos/ndk-include
 ```
 
 For other target operating systems, see `toolchain/target-os-headers.md`.
 Optional include folders: `<prefix>/m68k-amigaos/include/GL`, `.../SDL`,
-`.../MUI`.
+`.../mui` (lower case: case matters on Linux).
+
+Until ApolloCrossDev pull request #38 (2026-11-25) the template pointed at
+`ndk32-include/Include_H`, which the GCC-6.50 scripts never create. Builds
+still worked because GCC's built-in include path already holds
+`ndk-include`. A Makefile copied before that date has the wrong path; the
+generated code is the same.
 
 ### Extra libraries
 
@@ -88,7 +94,8 @@ the `libm020` or `libm020/libm881` builds (SRC: `m68k-amigaos-gcc
 
 ### Other options in the Makefile template
 
-- `-g`: debug information, for remote debugging with bgdbserver.
+- `-g`: debug information. ApolloCrossDev no longer installs bgdbserver
+  (since v1.2, 2026-11-08), so there is no remote debugger in the toolchain.
 - `-DREGPARM=4`: ignore it. It is not part of the standard options.
 
 ### Compile and link

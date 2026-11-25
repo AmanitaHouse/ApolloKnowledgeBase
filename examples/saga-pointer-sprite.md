@@ -38,8 +38,7 @@ m68k-amigaos-gcc -noixemul -O2 -m68080 -m68881 -ffast-math -fomit-frame-pointer 
 ```
 
 The full example builds in ApolloCrossDev with `make` in
-`Projects/ApolloPointer` (which also uploads it to the Apollo V4), or
-`make cleanbefore build` to only build. Its folder has seven 32x32 8-bit
+`Projects/ApolloPointer`. Copy the program to the Apollo V4 to run it. Its folder has seven 32x32 8-bit
 pointer images (`ApolloPointer_*_32x32x8.bmp`).
 
 ## Code

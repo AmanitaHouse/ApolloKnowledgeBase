@@ -15,10 +15,12 @@ related:
   - core/cpu-68080/superscalar-issue.md
   - core/cpu-68080/caches-and-memory.md
   - core/cpu-68080/prm/specs.md
+  - core/pitfalls/turtle-mode-counters.md
 sources:
   - "TuKo1982, 68080 compilation and optimisation guide (2026-10-30), section 1"
   - "Gunnar (core developer), answers to questions on the guidelines, 2026-11-03"
   - "Gunnar (core developer), memory controller width, 2026-11-04"
+  - "lessons/2026-11-v4-turtle-mode.md"
 ---
 
 ## Summary
@@ -43,6 +45,7 @@ statement wins.
 | FPU | 64-bit (double) internally, pipelined. Microcoded functions (trig, log, exp, fmod, frem, fscale, fgetexp/fgetman) take 100–200+ cycles and clobber E23 |
 | AttnFlags | `$847f` with the FPU on, `$040f` with it off. **Bit 10 = 68080** |
 | Context frames | AMMX 256 bytes, FPU 116 bytes |
+| Turtle mode | `ApolloControl TU=1/2/3` (A500/A1200/A4000). Same clock (CCC 99.3 MHz), one pipe issues, code 177x / 89x / 4.5x slower on Core 12856 (M). PCR bits 7-6 show it, see [turtle-mode-counters.md](../pitfalls/turtle-mode-counters.md) |
 
 Older notes and processor.resource up to version 44.6 give a 32-byte D-cache
 line; 44.7 gives 64 bytes, which matches the measurement.
@@ -60,4 +63,6 @@ line; 44.7 gives 64 bytes, which matches the measurement.
 - DO gate 68080 code paths on AttnFlags bit 10, and FPU paths on the 68881
   flag at run time: the FPU can be switched off.
 - DON'T assume three pipes because the PRM says so: measure IEP3 on your core.
+- DON'T benchmark in Turtle mode: check PCR bits 7-6, or set
+  `ApolloControl TU=0`, first.
 - DON'T use MMU instructions on the 68080.

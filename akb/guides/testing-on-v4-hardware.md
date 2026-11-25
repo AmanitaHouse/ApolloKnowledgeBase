@@ -18,6 +18,7 @@ related:
 sources:
   - "lessons/2026-11-akb-verification.md"
   - "lessons/2026-11-apolloexplorer.md"
+  - "lessons/2026-11-v4-turtle-mode.md"
   - "ApolloKnowledgeBase tools/v4/v4test.py and tools/v4/tests/ (2026-11-09)"
   - "ApolloOS-Port project, mk/card.mk and tools/ (WDrijver, 2026-10)"
   - "github.com/WDrijver/ApolloCrossDev Projects/ApolloLib/ApolloCrossDev_Debug.c"
@@ -56,7 +57,13 @@ This is how the knowledge base's own hardware tests run (`tools/v4/`).
 
 2. **Record the core number** with every result: `ash <v4-address>
    "ApolloControl CO"` prints it, for example `12556`. The SAGA register
-   `$DFF3EA` (CORE REVISION) has no documented format.
+   `$DFF3EA` (CORE REVISION) has no documented format. Record the Turtle
+   mode too (`ApolloControl TU=n`, shown in PCR bits 7-6): it slows code
+   down up to 177x, see
+   [turtle-mode-counters.md](../core/pitfalls/turtle-mode-counters.md).
+   Measure a mode's slowdown with a counted CPU loop, not with a remote
+   job: a small file hash over the network was only 4x, 12x and 22x slower
+   in TU=3, 2 and 1 (M).
 3. **Copy the program.** In `acp`'s destination, put a slash after the
    volume name:
 
@@ -98,6 +105,10 @@ This is how the knowledge base's own hardware tests run (`tools/v4/`).
      ApolloExplorerSrv starts at boot (`WBStartup` or `S:User-Startup`).
      Without that, the V4 answers ping, but no remote command works until
      someone starts the server by hand.
+   - DON'T take a V4 in Turtle mode for hung too soon. In TU=1 a
+     60-second CPU-bound program kept it from answering on the network for
+     about two minutes, and a directory listing took over 30 s (M). Use
+     timeouts of minutes there. A power cycle returns to full speed.
 
 `tools/v4/v4test.py` in the knowledge base does all of this: it builds the
 test with ApolloCrossDev, runs variants alternately (see
@@ -121,3 +132,6 @@ picture and core number per run.
 | The V4 answers ping 34.4 s after power-on | (M) | Core 12856 | V4 UniCorn, AmigaOS 3.9, Tasmota plug off 5 s then on, ping polled every 0.5 s, 2026-11-16 |
 | Without ApolloExplorerSrv in the startup, nothing answers on port 30302 after a power cycle | (M) | Core 12856 | Same power cycle: port 30302 refused 90 s after power-on while ping answered |
 | The capture device needs `-pixel_format uyvy422` and offers 1920x1080 at up to 60 fps | (M) | any | ffmpeg 9.0.2, macOS |
+| A small file hash over the network takes 0.04 / 0.15 / 0.47 / 0.88 s at full speed / TU=3 / TU=2 / TU=1, while counted CPU loops are 4.5x / 89x / 177x slower | (M) | Core 12856 | V4 UniCorn, ApolloOS R10, 2026-11-25, each mode set after a power cycle; [lesson](../lessons/2026-11-v4-turtle-mode.md) |
+| In TU=1 the V4 did not answer on the network for about 2 minutes during a 60 s CPU-bound program, and finished it normally; a remote directory listing did not finish within 30 s | (M) | Core 12856 | Same runs, one occurrence each |
+| A power cycle returns to full speed | (M) | Core 12856 | Same runs: the speed check after each power cycle matched full speed |

@@ -18,6 +18,7 @@ Usage:
       --execution-mode os-friendly --languages C \\
       [--target-os "AmigaOS 3.9"] \\
       [--target-core "Core 12798–12841"] \\
+      [--ndk {auto,3.2,3.9}] \\
       [--makefile-template PATH] [--claude | --no-claude] \\
       [--kb-url URL]
 
@@ -103,8 +104,9 @@ def project_rule_text(target_os, target_core):
         f"- **Target core:** {target_core}\n"
         f"- **Target model:** {DEFAULT_TARGET_MODEL}\n"
         "- Use `/apollo-build` before presenting code that must compile. Do not "
-        "run `make` or `make debug` unless the developer asks: those upload to "
-        "the V4.\n"
+        "run `make`, `make debug`, or any other Make target until `/apollo-build` "
+        "verifies the Makefile is non-uploading: older templates upload to the "
+        "V4 on `make` and `make debug`.\n"
         "- Use `/akb-lesson` when a milestone is done or an assumption was "
         "wrong. Do not publish or submit a lesson until the developer approves "
         "the exact text and names the destination.\n"
@@ -252,11 +254,13 @@ def parse_target_core(raw):
     return f"Core {int(start)}", None
 
 
-def required_ndk_kind(oses):
-    """NDK folder kind for the selected Target OS list (toolchain/target-os-headers.md)."""
-    if OS_39 in oses:
+def required_ndk_kind(oses, ndk_choice="auto"):
+    """NDK choice for Target OS and optional --ndk override (toolchain/target-os-headers.md)."""
+    if ndk_choice == "3.9":
         return "ndk39"
-    if oses and oses <= {OS_32, OS_APOLLO}:
+    if ndk_choice == "3.2":
+        return "ndk32"
+    if oses:
         return "ndk32"
     return None
 
@@ -323,7 +327,7 @@ def fill_agents(
     return text
 
 
-SAFE_COMMANDS = ("make compile", "make cleanbefore build")
+SAFE_COMMANDS = ("make", "make compile", "make cleanbefore build")
 NO_TEMPLATE_BUILD = (
     "# No Makefile template was supplied.\n"
     "# This file names no build command."
@@ -373,10 +377,21 @@ def emit_readiness_notes(assessment):
             )
     if ndk["status"] == "absent":
         print(f"NOTE=build-readiness: {ndk['reason']}")
-        print(
-            "NOTE=build-readiness: do not substitute m68k-amigaos/ndk-include "
-            "for the documented NDK path"
-        )
+        if ndk.get("kind") == "ndk39":
+            print(
+                "NOTE=build-readiness: do not substitute m68k-amigaos/ndk-include "
+                "for NDK 3.9 headers"
+            )
+        elif ndk.get("kind") == "ndk32":
+            print(
+                "NOTE=build-readiness: update C_INCL_NDK to "
+                "$(PREFIX)/$(TARGET)/ndk-include if NDK 3.2 is intended"
+            )
+        else:
+            print(
+                "NOTE=build-readiness: restore the required NDK directory "
+                "under the compiler PREFIX"
+            )
 
 
 # A sentinel that cannot appear in a language name. It protects the plus
@@ -514,8 +529,8 @@ def language_caveat(selected, situation=None):
     if asm:
         lines.append("# No assembler starter was written.")
     lines.append(
-        "# Generating files does not show that ndk39-include or "
-        "ndk32-include/Include_H is installed."
+        "# Generating files does not show that ndk-include "
+        "(or an explicit ndk39-include) is installed."
     )
     return "\n".join(lines)
 
@@ -580,7 +595,7 @@ def _cxx_status_notes(situation):
     )
     notes.append(
         "NOTE=LANGUAGE C++: generating these files does not show that the documented NDK "
-        "directories ndk39-include and ndk32-include/Include_H are installed."
+        "directory ndk-include (or an explicit ndk39-include) is installed."
     )
     for stem in situation.get("collisions") or []:
         if stem == "main" and starter == "conflict":
@@ -657,6 +672,7 @@ def _markdown_sentence(note):
     for plain, marked in (
         ("ndk32-include/Include_H", "`ndk32-include/Include_H`"),
         ("ndk39-include", "`ndk39-include`"),
+        ("ndk-include", "`ndk-include`"),
         ("m68k-amigaos-g++", "`m68k-amigaos-g++`"),
         ("CXX_COMPILER", "`CXX_COMPILER`"),
         ("C_COMPILER", "`C_COMPILER`"),
@@ -1004,6 +1020,10 @@ def _ndk_line_kind(line):
         return "ndk39"
     if "ndk32-include" in line:
         return "ndk32"
+    if "ndk13-include" in line:
+        return "ndk13"
+    if re.search(r"(?:^|[/\\\s])ndk-include(?=$|[/\\\s])", line):
+        return "ndk"
     return None
 
 
@@ -1023,19 +1043,19 @@ def _comment_ndk_line(lines, index):
         lines[index] = "# " + body + newline
 
 
-def adjust_makefile(text, project_name, selected, target_oses=None):
-    """Rewrite PROJECT_NAME and the NDK include for the selected Target OS.
+def adjust_makefile(text, project_name, selected, target_oses=None, ndk_choice="auto"):
+    """Rewrite PROJECT_NAME and the NDK include for the selected configuration.
 
     Returns (makefile_text, notes, cpp_info, ndk_consistent).
     ndk_consistent is False when the template cannot express the NDK required
-    by toolchain/target-os-headers.md for the requested OS list.
+    by toolchain/target-os-headers.md for the requested configuration.
     """
     if target_oses is None:
         target_oses = frozenset(_OS_ORDER)
     notes = []
     lines = text.splitlines(keepends=True)
     name_done = False
-    ndk_lines = {"ndk39": None, "ndk32": None}
+    ndk_lines = {"ndk": None, "ndk32": None, "ndk39": None, "ndk13": None}
     active_ndk = []
     for i, line in enumerate(lines):
         stripped = line.lstrip()
@@ -1052,28 +1072,38 @@ def adjust_makefile(text, project_name, selected, target_oses=None):
     if not name_done:
         notes.append("NOTE=Makefile template has no PROJECT_NAME assignment")
 
-    want = required_ndk_kind(target_oses)
+    want = required_ndk_kind(target_oses, ndk_choice=ndk_choice)
     ndk_consistent = True
     present = {kind for kind, index in ndk_lines.items() if index is not None}
+    chosen_kind = None
+    if want == "ndk39":
+        if ndk_lines["ndk39"] is not None:
+            chosen_kind = "ndk39"
+    elif want == "ndk32":
+        if ndk_lines["ndk"] is not None:
+            chosen_kind = "ndk"
+        elif ndk_lines["ndk32"] is not None:
+            chosen_kind = "ndk32"
+
     if want is None:
         ndk_consistent = False
         notes.append(
             "NOTE=Target OS list has no documented NDK mapping in "
             "toolchain/target-os-headers.md; C_INCL_NDK was left unchanged"
         )
-    elif ndk_lines[want] is None:
+    elif chosen_kind is None:
         label = (
             "ndk39-include"
             if want == "ndk39"
-            else "ndk32-include/Include_H"
+            else "ndk-include (or legacy ndk32-include/Include_H)"
         )
         if present:
-            # Template declares a different NDK than the Target OS requires.
+            # Template declares a different NDK than the requested configuration needs.
             ndk_consistent = False
             notes.append(
                 f"NOTE=Makefile template has no {label} line for the requested "
-                "Target OS; C_INCL_NDK was left unchanged and build readiness "
-                "is not claimed"
+                "NDK configuration; C_INCL_NDK was left unchanged and build "
+                "readiness is not claimed"
             )
         else:
             # No identifiable NDK include line: leave the Makefile unchanged
@@ -1081,11 +1111,11 @@ def adjust_makefile(text, project_name, selected, target_oses=None):
             ndk_consistent = False
             notes.append(
                 f"NOTE=Makefile template has no identifiable C_INCL_NDK line "
-                f"(needed {label} for the requested Target OS); "
+                f"(needed {label}); "
                 "C_INCL_NDK was left unchanged and build readiness is not claimed"
             )
     else:
-        chosen = ndk_lines[want]
+        chosen = ndk_lines[chosen_kind]
         _activate_ndk_line(lines, chosen)
         for i in active_ndk:
             if i == chosen:
@@ -1094,8 +1124,13 @@ def adjust_makefile(text, project_name, selected, target_oses=None):
         for kind, index in ndk_lines.items():
             if index is None or index == chosen:
                 continue
-            if kind != want:
-                _comment_ndk_line(lines, index)
+            _comment_ndk_line(lines, index)
+        if OS_39 in target_oses and chosen_kind in {"ndk", "ndk32"}:
+            notes.append(
+                "NOTE=Target OS includes AmigaOS 3.9; ApolloCrossDev installs "
+                "NDK 3.2 (ndk-include) with no NDK 3.9 headers, so check every "
+                "OS function against os/apolloos-and-amigaos-on-v4.md"
+            )
 
     joined = "".join(lines)
     if "C++" not in selected:
@@ -1170,6 +1205,15 @@ def main(argv):
             "or Core N–M). Omit to keep the default phrase."
         ),
     )
+    parser.add_argument(
+        "--ndk",
+        default="auto",
+        choices=("auto", "3.2", "3.9"),
+        help=(
+            "guided NDK selection: auto / 3.2 (default ndk-include, or legacy "
+            "ndk32-include) or explicit 3.9 (requires ndk39-include)."
+        ),
+    )
     parser.add_argument("--makefile-template", default="")
     parser.add_argument("--kb-url", default=FORK_URL)
     parser.add_argument("--claude", dest="claude", action="store_true")
@@ -1219,9 +1263,9 @@ def main(argv):
         what, kind, mode = args.what, args.kind, args.execution_mode
         basic = False
     else:
-        if args.target_os.strip() or args.target_core.strip():
+        if args.target_os.strip() or args.target_core.strip() or args.ndk != "auto":
             return fail(
-                "basic setup does not accept --target-os or --target-core. "
+                "basic setup does not accept --target-os, --target-core, or --ndk. "
                 "Omit those flags to keep the historical basic defaults, or use "
                 "--setup guided with --what, --kind, --execution-mode, and the "
                 "explicit target flags."
@@ -1265,7 +1309,7 @@ def main(argv):
             with open(args.makefile_template, encoding="utf-8") as fh:
                 makefile_text = fh.read()
             makefile_text, makefile_notes, cpp_info, ndk_consistent = adjust_makefile(
-                makefile_text, name, selected, target_oses,
+                makefile_text, name, selected, target_oses, ndk_choice=args.ndk,
             )
             # Classify the Makefile text that will be written, not the raw
             # template path alone. Upload safety and compiler-path readiness
@@ -1278,6 +1322,12 @@ def main(argv):
             build_assessment = resolve_compiler.assess_build_readiness(
                 makefile_text, project,
             )
+            if situation and situation["makefile"] == "write" and cpp_info:
+                situation["configured"] = bool(cpp_info["configured"])
+                situation["discovery"] = cpp_info["discovery"]
+                situation["link"] = cpp_info["link"]
+                situation["rule"] = cpp_info["rule"]
+                situation["compiler"] = cpp_info["compiler"]
             if situation and situation["makefile"] == "preserved":
                 build_body = (
                     "# An existing Makefile was left unchanged.\n"
@@ -1285,37 +1335,24 @@ def main(argv):
                 )
                 build_verdict = None
                 build_assessment = None
+            elif build_verdict.command not in SAFE_COMMANDS:
+                build_body = agents_build_body(build_verdict, build_assessment)
+                emit_readiness_notes(build_assessment)
             elif not ndk_consistent:
                 build_body = (
                     "# The Makefile NDK include line could not be established for "
-                    "the requested Target OS.\n"
-                    "# toolchain/target-os-headers.md: AmigaOS 3.9 needs "
-                    "ndk39-include; AmigaOS 3.2 and ApolloOS R10 need "
-                    "ndk32-include/Include_H.\n"
+                    "the requested configuration.\n"
+                    "# toolchain/target-os-headers.md documents ndk-include (NDK 3.2) "
+                    "and optional user-supplied ndk39-include when explicitly requested.\n"
                     "# This file names no build command."
                 )
                 print(
-                    "NOTE=build-readiness: Target OS and Makefile NDK line are "
-                    "inconsistent; AGENTS.md names no Make command"
+                    "NOTE=build-readiness: Makefile NDK configuration could not "
+                    "be established; AGENTS.md names no Make command"
                 )
                 for note in makefile_notes:
                     if note.startswith("NOTE=") and "ndk" in note.lower():
                         print(note)
-                if situation and situation["makefile"] == "write" and cpp_info:
-                    situation["configured"] = bool(cpp_info["configured"])
-                    situation["discovery"] = cpp_info["discovery"]
-                    situation["link"] = cpp_info["link"]
-                    situation["rule"] = cpp_info["rule"]
-                    situation["compiler"] = cpp_info["compiler"]
-            elif situation and situation["makefile"] == "write":
-                if cpp_info:
-                    situation["configured"] = bool(cpp_info["configured"])
-                    situation["discovery"] = cpp_info["discovery"]
-                    situation["link"] = cpp_info["link"]
-                    situation["rule"] = cpp_info["rule"]
-                    situation["compiler"] = cpp_info["compiler"]
-                build_body = agents_build_body(build_verdict, build_assessment)
-                emit_readiness_notes(build_assessment)
             else:
                 build_body = agents_build_body(build_verdict, build_assessment)
                 emit_readiness_notes(build_assessment)

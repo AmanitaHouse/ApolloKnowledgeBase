@@ -84,10 +84,12 @@ install script or patches there last changed, for example after a
 ApolloCrossDev.
 
 Documented NDK directories are taken from `KB toolchain/target-os-headers.md`:
-`m68k-amigaos/ndk39-include` (NDK 3.9) and
-`m68k-amigaos/ndk32-include/Include_H` (NDK 3.2), under the effective
-compiler `PREFIX` when that location can be established from the Makefile
-without evaluating Make. Recognised shapes are
+`m68k-amigaos/ndk-include` (NDK 3.2, installed by ApolloCrossDev since
+pull request #38), `m68k-amigaos/ndk13-include` (NDK 1.3), optional
+user-supplied `m68k-amigaos/ndk39-include` (NDK 3.9), and legacy
+`m68k-amigaos/ndk32-include/Include_H` in older Makefiles, under the
+effective compiler `PREFIX` when that location can be established from the
+Makefile without evaluating Make. Recognised shapes are
 `PREFIX=$(ACD_ROOT)/Compilers/GCC-6.50-Dev|Stable|Base` when `ACD_ROOT`
 resolves (set `APOLLOCROSSDEV`, or a project two levels under
 ApolloCrossDev), and the v1.0 form
@@ -97,11 +99,13 @@ levels under ApolloCrossDev. A Dev/Stable/Base label alone is not a path.
 check and is not proof that the project Makefile uses Dev. An active NDK
 requirement needs an uncommented `C_INCL_NDK` that names a documented path
 and is shown to feed flags through `C_INCL_ALL` and `C_FLAGS` (the template
-shape); without a Makefile, a concrete `Target OS` in `AGENTS.md`
-(AmigaOS 3.9 → NDK 3.9; AmigaOS 3.2 or ApolloOS R10 → NDK 3.2). If the
-compiler location or NDK requirement cannot be established, the script
-prints `NOTE=` uncertainty and does not invent a selection. It never treats
-`m68k-amigaos/ndk-include` as a documented NDK.
+shape); without a Makefile, a concrete `Target OS` in `AGENTS.md` uses NDK
+3.2 (`m68k-amigaos/ndk-include`), with a manual function check against
+`KB os/apolloos-and-amigaos-on-v4.md` whenever `AmigaOS 3.9` is targeted.
+If the compiler location or NDK requirement cannot be established, the
+script prints `NOTE=` uncertainty and does not invent a selection. It
+never treats `m68k-amigaos/ndk-include` as a substitute for explicit
+`ndk39-include` or unupdated `ndk32-include/Include_H` paths.
 
 - Fix every `PROBLEM` before building, with the user: a missing toolchain
   means installing ApolloCrossDev (`KB toolchain/index.md`, section
@@ -110,9 +114,11 @@ prints `NOTE=` uncertainty and does not invent a selection. It never treats
   `$(PWD)/../../Compilers/...` path means the project location is
   incompatible with that template (offer moving under `Projects/` or
   updating ApolloCrossDev for v1.2+; do not rewrite PREFIX yourself), and
-  a missing documented NDK directory means restoring that NDK under the
-  reported `NDK_COMPILER=` path. Do not point the build at `ndk-include`
-  or any other undocumented tree and call it the NDK.
+  a missing required NDK directory means restoring that NDK under the
+  reported `NDK_COMPILER=` path (or, for an older `ndk32-include/Include_H`
+  Makefile intending NDK 3.2, updating `C_INCL_NDK` to `ndk-include`). Do
+  not point the build at `ndk-include` to satisfy an explicit
+  `ndk39-include` requirement.
 - A `BUILD=` line does not override an unresolved `PROBLEM=` (including an
   unresolved project compiler path or a missing required NDK). Do not
   compile until that `PROBLEM=` is resolved. Upload safety is not build
@@ -175,17 +181,20 @@ only build-command policy: do not keep a second one.
 
 | find-acd.sh line | What you do |
 |---|---|
-| `BUILD=make compile` or `BUILD=make cleanbefore build`, and no compiler-path or NDK `PROBLEM=` | Run that command. `BUILD_DETAIL=` says why it was classified as non-uploading. `COMPILER_STATUS=ready` confirms the project PREFIX. |
+| `BUILD=make`, `BUILD=make compile`, or `BUILD=make cleanbefore build`, and no compiler-path or NDK `PROBLEM=` | Run that command. `BUILD_DETAIL=` says why it was classified as non-uploading. `COMPILER_STATUS=ready` confirms the project `PREFIX`. |
 | `BUILD=` present, but `PROBLEM=` for the project compiler path or required NDK | Do not run make. Explain the blocker. Upload safety is not permission to compile. |
-| `NOTE=` that no Make command can be recommended | Do not run make. Do not invent `make compile` or `make cleanbefore build`. |
+| `NOTE=` that no Make command can be recommended | Do not run make. Do not invent `make`, `make compile`, or `make cleanbefore build`. |
 | no project Makefile | Use the flags in `KB toolchain/c-compiler-options.md` exactly, and the NDK from step 4. |
 
 - A `BUILD=` line is the only Make command this skill may run on its own,
-  and only when there is no unresolved `PROBLEM=`. Plain `make` and
-  `make debug` upload on v1.0 and on earlier v1.2 (`d636629`); later v1.2
-  (`d571781` / `605007e`) has no upload targets and no `compile` target
-  (`KB toolchain/project-makefile.md`). Do not run plain `make` or
-  `make debug` unless the developer asks and the project's Makefile shows
+  and only when there is no unresolved `PROBLEM=`. Since ApolloCrossDev
+  v1.2 (2026-11-08, `d571781` / pull request #38), the template builds
+  locally on the host via plain `make` and has no upload, `compile`, or
+  `debug` targets (`KB toolchain/project-makefile.md`). In older Makefiles
+  (v1.0 and earlier v1.2 of 2026-11-05), plain `make` and `make debug`
+  copy files to the V4 over the network while `make compile` or
+  `make cleanbefore build` build locally. Do not run an unclassified
+  `make` or `make debug` unless the developer asks and the Makefile shows
   what those goals do.
 - Do not treat a missing `compile` target, a recipe that never mentions
   `acp`, or an `UPDATE=` line as permission to choose a target or to update
@@ -199,8 +208,8 @@ only build-command policy: do not keep a second one.
   Read all of it.
 - Without a Makefile (a quick test), use the flags from
   `KB toolchain/c-compiler-options.md` exactly, and the NDK from step 4.
-  If that NDK path is not on disk, say so. Do not substitute another
-  include directory and call it the documented NDK.
+  If the selected NDK path is not on disk, say so. Do not substitute
+  `m68k-amigaos/ndk-include` for an explicit `ndk39-include` requirement.
 
 ## 4. Settings: take them from the KB, never from memory
 
@@ -208,7 +217,7 @@ only build-command policy: do not keep a second one.
 |---|---|---|
 | Compiler variant | GCC-6.50-Dev; GCC-6.50-Stable only to test a suspected compiler bug; never GCC 13/15 | `toolchain/compiler-variants.md` |
 | C/C++ flags | `-O2 -m68080 -m68881 -ffast-math -fomit-frame-pointer`, libnix (`-noixemul`) | `toolchain/c-compiler-options.md` |
-| NDK headers | NDK 3.2 for AmigaOS 3.2 and ApolloOS R10; NDK 3.9 as soon as AmigaOS 3.9 is a target | `toolchain/target-os-headers.md` |
+| NDK headers | NDK 3.2 (`m68k-amigaos/ndk-include`) by default; verify OS calls against `os/apolloos-and-amigaos-on-v4.md` for AmigaOS 3.9; explicit `ndk39-include` only when required | `toolchain/target-os-headers.md` |
 | Assembler | vasm, `-Fhunk -m68080 -m68881` | `toolchain/vasm-assembler.md` |
 | ApolloLib | compiled from its sources by the template (`APOLLOLIB`) | `toolchain/apollolib/index.md` |
 

@@ -6,6 +6,7 @@ write_project_files.py. It does not run make, a shell, or a recipe.
 
 A command is returned only when the selected target is one of:
 
+  make
   make compile
   make cleanbefore build
 
@@ -32,6 +33,7 @@ STATUS_UNVERIFIED = "unverified"
 STATUS_UPLOAD = "upload-capable"
 STATUS_MISSING = "missing"
 
+COMMAND_MAKE = "make"
 COMMAND_COMPILE = "make compile"
 COMMAND_CLEANBEFORE = "make cleanbefore build"
 
@@ -90,10 +92,11 @@ class ExpandError(Exception):
 
 
 class Verdict:
-    def __init__(self, status, command, reason):
+    def __init__(self, status, command, reason, built=False):
         self.status = status
         self.command = command
         self.reason = reason
+        self.built = built
 
     def lines(self):
         rows = [f"STATUS={self.status}"]
@@ -164,6 +167,17 @@ def classify_text(text, path=None):
             "compile and every target it builds were inspected; "
             "their recipes are local compile, link, echo, or cleanup steps",
         )
+    if mf.default_goal == "all":
+        all_verdict = inspect_named(mf, ["all"])
+    else:
+        all_verdict = Verdict(STATUS_MISSING, None, "all is not the default goal")
+    if all_verdict.status == STATUS_VERIFIED and all_verdict.built:
+        return Verdict(
+            STATUS_VERIFIED,
+            COMMAND_MAKE,
+            "default target all and every target it builds were inspected; "
+            "their recipes are local compile, link, echo, or cleanup steps",
+        )
     fallback = inspect_named(mf, ["cleanbefore", "build"])
     if fallback.status == STATUS_VERIFIED:
         detail = (
@@ -174,8 +188,12 @@ def classify_text(text, path=None):
             detail += "; compile was not selected because it can upload"
         elif compile_verdict.status == STATUS_UNVERIFIED:
             detail += "; compile was not selected because it could not be verified"
+        elif all_verdict.status == STATUS_UPLOAD:
+            detail += "; default target all was not selected because it can upload"
+        elif all_verdict.status == STATUS_UNVERIFIED:
+            detail += "; default target all was not selected because it could not be verified"
         return Verdict(STATUS_VERIFIED, COMMAND_CLEANBEFORE, detail)
-    return combine(compile_verdict, fallback)
+    return combine(compile_verdict, all_verdict, fallback)
 
 
 def refuse(reason, status=STATUS_UNVERIFIED):
@@ -186,12 +204,19 @@ def refuse(reason, status=STATUS_UNVERIFIED):
     )
 
 
-def combine(compile_verdict, fallback):
+def combine(compile_verdict, all_verdict, fallback):
     parts = []
     statuses = []
-    for label, verdict in (("compile", compile_verdict), ("cleanbefore build", fallback)):
+    for label, verdict in (
+        ("compile", compile_verdict),
+        ("all", all_verdict),
+        ("cleanbefore build", fallback),
+    ):
         if verdict.status == STATUS_MISSING:
             parts.append(f"{label} is not present")
+        elif label == "all" and verdict.status == STATUS_VERIFIED and not verdict.built:
+            parts.append("all does not invoke a build target or compiler")
+            statuses.append(STATUS_UNVERIFIED)
         else:
             parts.append(f"{label} is {verdict.status}: {verdict.reason}")
             statuses.append(verdict.status)
@@ -219,7 +244,7 @@ def inspect(mf, goals, visiting=None):
     if missing:
         listed = ", ".join(missing)
         return Verdict(STATUS_MISSING, None, f"{listed} is not present")
-    state = {"status": STATUS_VERIFIED, "reason": "inspected"}
+    state = {"status": STATUS_VERIFIED, "reason": "inspected", "built": False}
     seen = set()
     pending = [goal for goal in goals if goal not in visiting]
     while pending:
@@ -243,14 +268,16 @@ def inspect(mf, goals, visiting=None):
             continue
         if rule is None:
             return Verdict(STATUS_UNVERIFIED, None, f"duplicate rule for {item}")
-        note = classify_recipe(mf, rule, pending, visiting)
+        if item == "build":
+            state["built"] = True
+        note = classify_recipe(mf, rule, pending, visiting, state)
         merge(state, note)
         if state["status"] == STATUS_UPLOAD:
             break
         queue_prereqs(mf, rule, pending, state)
         if state["status"] == STATUS_UPLOAD:
             break
-    return Verdict(state["status"], None, state["reason"])
+    return Verdict(state["status"], None, state["reason"], built=state["built"])
 
 
 def goal_exists(mf, goal):
@@ -264,7 +291,7 @@ def consider_pattern(mf, pattern, pending, state, visiting):
         return
     for rule_pattern, rule in mf.patterns:
         if could_supply(rule_pattern, pattern):
-            note = classify_recipe(mf, rule, pending, visiting)
+            note = classify_recipe(mf, rule, pending, visiting, state)
             merge(state, note)
             queue_prereqs(mf, rule, pending, state)
     for target, rule in mf.explicit.items():
@@ -322,7 +349,7 @@ def queue_prereqs(mf, rule, pending, state):
             pending.append(token)
 
 
-def classify_recipe(mf, rule, pending, visiting):
+def classify_recipe(mf, rule, pending, visiting, state=None):
     worst = STATUS_VERIFIED
     reason = "inspected"
     for raw in rule.recipe:
@@ -343,7 +370,9 @@ def classify_recipe(mf, rule, pending, visiting):
                 if "$(" in raw or "${" in raw:
                     return STATUS_UNVERIFIED, "a recipe command comes from an unset variable"
                 continue
-            status, detail = classify_command(tokens, mf, visiting)
+            status, detail, built_here = classify_command(tokens, mf, visiting)
+            if state is not None and built_here:
+                state["built"] = True
             if rank(status) > rank(worst):
                 worst = status
                 reason = detail
@@ -365,14 +394,15 @@ def classify_command(tokens, mf, visiting):
         return classify_recursive(tokens[1:], mf, visiting)
     base = basename(command)
     if base in UPLOAD_BASES or command.rstrip("/").endswith("/acp"):
-        return STATUS_UPLOAD, f"a recipe runs the upload command {base or 'acp'}"
+        return STATUS_UPLOAD, f"a recipe runs the upload command {base or 'acp'}", False
     if any(marker in command for marker in (WILD, MATCH_MARK, AUTO)):
-        return STATUS_UNVERIFIED, "a recipe command is not a fixed local program"
+        return STATUS_UNVERIFIED, "a recipe command is not a fixed local program", False
     if base in COMPILE_BASES:
-        return STATUS_VERIFIED, "compiler"
+        return STATUS_VERIFIED, "compiler", True
     if base in LOCAL_COMMANDS:
-        return classify_local(base, tokens[1:])
-    return STATUS_UNVERIFIED, f"a recipe command cannot be classified: {base or command}"
+        status, detail = classify_local(base, tokens[1:])
+        return status, detail, False
+    return STATUS_UNVERIFIED, f"a recipe command cannot be classified: {base or command}", False
 
 
 def classify_local(base, args):
@@ -408,27 +438,27 @@ def classify_recursive(args, mf, visiting):
     while index < len(args):
         arg = args[index]
         if arg in {"-C", "--directory", "-f", "--file", "--makefile", "-I", "--include-dir"}:
-            return STATUS_UNVERIFIED, "recursive make changes directory, makefile, or include path"
+            return STATUS_UNVERIFIED, "recursive make changes directory, makefile, or include path", False
         if arg.startswith(("-C", "--directory=", "-f", "--file=", "--makefile=", "-I", "--include-dir=")):
-            return STATUS_UNVERIFIED, "recursive make changes directory, makefile, or include path"
+            return STATUS_UNVERIFIED, "recursive make changes directory, makefile, or include path", False
         if arg.startswith("-"):
-            return STATUS_UNVERIFIED, "recursive make uses a flag this classifier does not inspect"
+            return STATUS_UNVERIFIED, "recursive make uses a flag this classifier does not inspect", False
         if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", arg):
-            return STATUS_UNVERIFIED, "recursive make overrides a variable"
+            return STATUS_UNVERIFIED, "recursive make overrides a variable", False
         targets.append(arg)
         index += 1
     if not targets:
         if not mf.default_goal:
-            return STATUS_UNVERIFIED, "recursive make names no target"
+            return STATUS_UNVERIFIED, "recursive make names no target", False
         targets = [mf.default_goal]
     verdict = inspect(mf, targets, visiting)
     if verdict.status == STATUS_VERIFIED:
-        return STATUS_VERIFIED, "recursive make stays on inspected targets"
+        return STATUS_VERIFIED, "recursive make stays on inspected targets", verdict.built
     if verdict.status == STATUS_MISSING:
-        return STATUS_UNVERIFIED, "recursive make names a target that is not present"
+        return STATUS_UNVERIFIED, "recursive make names a target that is not present", False
     if verdict.status == STATUS_UPLOAD:
-        return STATUS_UPLOAD, "recursive make builds a target that uploads"
-    return STATUS_UNVERIFIED, "recursive make cannot be inspected: " + verdict.reason
+        return STATUS_UPLOAD, "recursive make builds a target that uploads", False
+    return STATUS_UNVERIFIED, "recursive make cannot be inspected: " + verdict.reason, False
 
 
 def merge(state, note):

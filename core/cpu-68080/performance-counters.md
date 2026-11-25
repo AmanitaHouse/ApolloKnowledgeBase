@@ -13,9 +13,11 @@ tags: [68080, counters, ccc, iep, movec, benchmark]
 related:
   - core/cpu-68080/prm/integer/movec.md
   - core/cpu-68080/prm/optimizing.md
+  - core/pitfalls/turtle-mode-counters.md
 sources:
   - "TuKo1982, 68080 compilation and optimisation guide (2026-10-30), sections 7.3 and 8.1"
   - "lessons/2026-11-akb-verification.md"
+  - "lessons/2026-11-v4-turtle-mode.md"
 ---
 
 ## Summary
@@ -34,7 +36,7 @@ reliable way to time code. The other event counters read 0 on release cores.
 | `$80A` | IEP1 | Instructions issued in pipe 1 |
 | `$80B` | IEP2 | Instructions issued in pipe 2 |
 | `$00C` | IEP3 | Instructions issued in pipe 3 (0 on cores with 2 pipes) |
-| `$808` | PCR | id `$0440`. Bit 0 = second pipe, bit 1 = FPU off. The core ignores PCR's ESS bit (M) |
+| `$808` | PCR | id `$0440`. Bit 0 = second pipe, bit 1 = FPU off. The core ignores PCR's ESS bit (M). Bits 7-6 = Turtle mode on Core 12856 (M), see below |
 
 - The debug and event counters (BPC/BPW, DCH/DCM `$80E/$80F`,
   STR/STC/STB/MWR) read 0 on release cores (M).
@@ -69,6 +71,27 @@ Run 6 independent `addq`/`subq` + `dbf`, 32001 turns (n instructions):
 - IEP3 ≥ n/16 and IEP1 + IEP2 < 7/8 n: 3 pipes.
 - Otherwise: 2 pipes.
 
+In Turtle mode this test answers 1 pipe, see the next section.
+
+### In Turtle mode
+
+Measured on Core 12856 (M, V4 UniCorn, ApolloOS R10, 2026-11-25), with
+`ApolloControl TU=n` set after a power cycle:
+
+| | TU=0 (off) | TU=3 (A4000) | TU=2 (A1200) | TU=1 (A500) |
+|---|---|---|---|---|
+| PCR | `$04400101` | `$04400141` | `$044001C1` | `$04400181` |
+| CCC rate | 99.3 MHz | 99.3 MHz | 99.3 MHz | 99.3 MHz |
+| IEP2 | counts | 0 | 0 | 0 |
+| IEP1 per instruction | about 0.57 | 2.5 | 48 | 96 |
+| Counted ALU loop, CCC | 1x | 4.5x | 89x | 177x |
+
+- CCC still counts time; Turtle makes each instruction take more cycles.
+- Only one pipe issues, while PCR bit 0 stays 1.
+- IEP1 counts about one per cycle (94-97 % of CCC), not instructions.
+- Details and the Wrong/Right code:
+  [turtle-mode-counters.md](../pitfalls/turtle-mode-counters.md).
+
 ## Differences from AmigaOS / AROS / 68060
 
 - These counters are 68080 specific. `movec` reads of them work in user
@@ -79,6 +102,8 @@ Run 6 independent `addq`/`subq` + `dbf`, 32001 turns (n instructions):
 ## Do / Don't
 
 - DO time code with CCC, on trained loops, under `Disable()`.
+- DO check PCR bits 7-6 (Turtle mode) before a benchmark, and log PCR with
+  the result. DON'T read IEP1 as an instruction count in Turtle mode.
 - DON'T measure in supervisor mode with interrupts off: a fault there gurus.
 - DON'T write a register the loop uses while under `Disable()`: this hung the
   V4 once.

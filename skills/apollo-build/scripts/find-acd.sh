@@ -9,7 +9,7 @@
 # prints PROBLEM= lines and exits 1.
 #
 # When the project has a Makefile, BUILD= is the one verified non-uploading
-# command (make compile, or make cleanbefore build). That is upload safety
+# command (make, make compile, or make cleanbefore build). That is upload safety
 # only. PROJECT_PREFIX / COMPILER_STATUS say whether the Makefile's PREFIX
 # resolves for this project location. If that cannot be established, a
 # PROBLEM= blocks compilation even when BUILD= is present. A NOTE= says why
@@ -18,9 +18,12 @@
 # PROBLEM=.
 #
 # Documented NDK headers (toolchain/target-os-headers.md), under PREFIX:
-#   NDK 3.9  m68k-amigaos/ndk39-include
-#   NDK 3.2  m68k-amigaos/ndk32-include/Include_H
-# m68k-amigaos/ndk-include is not a documented substitute.
+#   NDK 3.2  m68k-amigaos/ndk-include (default since ApolloCrossDev PR #38)
+#   NDK 1.3  m68k-amigaos/ndk13-include
+# Legacy Makefiles may still name ndk32-include/Include_H, and projects that
+# explicitly require NDK 3.9 headers may name ndk39-include (not installed by
+# default). m68k-amigaos/ndk-include is never treated as a substitute for
+# explicit ndk39-include or unupdated ndk32-include/Include_H paths.
 #
 # Updates (skipped with --offline or without network), as UPDATE= lines:
 #   UPDATE=checkout ...   the ApolloCrossDev checkout is behind GitHub:
@@ -237,6 +240,7 @@ ndk_compiler_root_from_makefile() {
 }
 
 # Last uncommented C_INCL_NDK= that names a documented NDK path fragment.
+# Returns one of: ndk39, ndk32, ndk13, ndk.
 ndk_required_from_makefile() {
     file=$1
     line=$(
@@ -245,8 +249,22 @@ ndk_required_from_makefile() {
             | tail -n 1
     )
     case $line in
-        *ndk39-include*) printf '%s\n' "3.9" ;;
-        *ndk32-include*) printf '%s\n' "3.2" ;;
+        *ndk39-include*) printf '%s\n' "ndk39" ;;
+        *ndk32-include*) printf '%s\n' "ndk32" ;;
+        *ndk13-include*) printf '%s\n' "ndk13" ;;
+        *)
+            if printf '%s\n' "$line" | grep -Eq '(^|[/[:space:]])ndk-include($|[/[:space:]])'; then
+                printf '%s\n' "ndk"
+            fi
+            ;;
+    esac
+}
+
+ndk_version_for_kind() {
+    case $1 in
+        ndk39) printf '%s\n' "3.9" ;;
+        ndk|ndk32) printf '%s\n' "3.2" ;;
+        ndk13) printf '%s\n' "1.3" ;;
     esac
 }
 
@@ -261,8 +279,21 @@ ndk_incl_feeds_flags() {
     return 0
 }
 
+agents_has_amigaos39() {
+    file=$1
+    [ -f "$file" ] || return 1
+    line=$(sed 's/\r$//' "$file" | sed -n 's/^[-*][[:space:]]*\*\*Target OS:\*\*[[:space:]]*//p' | head -n 1)
+    [ -n "$line" ] || return 1
+    case $line in
+        *'<'*|*not\ set*|*Not\ set*) return 1 ;;
+        *3.9*) return 0 ;;
+    esac
+    return 1
+}
+
 # AGENTS.md Target OS only when the value is concrete (no placeholder).
-# AmigaOS 3.9 wins as soon as it is listed; otherwise 3.2 / ApolloOS R10 -> 3.2.
+# ApolloCrossDev installs NDK 3.2 (ndk-include) for all supported targets,
+# including AmigaOS 3.9 with a manual function check against the KB.
 ndk_required_from_agents() {
     file=$1
     [ -f "$file" ] || return 0
@@ -271,57 +302,43 @@ ndk_required_from_agents() {
     case $line in
         *'<'*|*not\ set*|*Not\ set*) return 0 ;;
     esac
-    has39=0
-    has32=0
     case $line in
-        *3.9*) has39=1 ;;
+        *3.9*|*3.2*|*[Aa]pollo[Oo][Ss]*|*R10*)
+            printf '%s\n' "ndk"
+            ;;
     esac
-    case $line in
-        *3.2*|*[Aa]pollo[Oo][Ss]*|*R10*) has32=1 ;;
-    esac
-    if [ $has39 = 1 ]; then
-        printf '%s\n' "3.9"
-    elif [ $has32 = 1 ]; then
-        printf '%s\n' "3.2"
-    fi
 }
 
 ndk_path_for() {
     compiler_root=$1
-    version=$2
-    case $version in
-        3.9) printf '%s\n' "$compiler_root/m68k-amigaos/ndk39-include" ;;
-        3.2) printf '%s\n' "$compiler_root/m68k-amigaos/ndk32-include/Include_H" ;;
+    kind=$2
+    case $kind in
+        ndk39) printf '%s\n' "$compiler_root/m68k-amigaos/ndk39-include" ;;
+        ndk) printf '%s\n' "$compiler_root/m68k-amigaos/ndk-include" ;;
+        ndk32) printf '%s\n' "$compiler_root/m68k-amigaos/ndk32-include/Include_H" ;;
+        ndk13) printf '%s\n' "$compiler_root/m68k-amigaos/ndk13-include" ;;
     esac
 }
 
 ndk_note_absent_under() {
     compiler_root=$1
-    path39=$(ndk_path_for "$compiler_root" "3.9")
-    path32=$(ndk_path_for "$compiler_root" "3.2")
-    absent_note=0
-    if [ ! -d "$path39" ]; then
-        echo "NOTE=documented NDK 3.9 directory is absent at $path39 (checked under $compiler_root); its use by the active build configuration was not established"
-        absent_note=1
-    fi
-    if [ ! -d "$path32" ]; then
-        echo "NOTE=documented NDK 3.2 directory is absent at $path32 (checked under $compiler_root); its use by the active build configuration was not established"
-        absent_note=1
-    fi
-    if [ $absent_note = 1 ] && [ -d "$compiler_root/m68k-amigaos/ndk-include" ]; then
-        echo "NOTE=m68k-amigaos/ndk-include exists under $compiler_root and is not a documented NDK substitute (toolchain/target-os-headers.md)"
+    path_ndk=$(ndk_path_for "$compiler_root" "ndk")
+    if [ ! -d "$path_ndk" ]; then
+        echo "NOTE=documented NDK 3.2 directory is absent at $path_ndk (checked under $compiler_root); its use by the active build configuration was not established"
     fi
 }
 
 # Report documented NDK presence. PROBLEM only when the effective compile
 # PREFIX and an active wired C_INCL_NDK requirement are both established.
-# Never treat ndk-include as OK.
+# Never treat ndk-include as a substitute for explicit ndk39-include or
+# unupdated ndk32-include/Include_H paths.
 report_ndk() {
     project=$1
     acd_root=$2
     makefile=$project/Makefile
     agents=$project/AGENTS.md
     compiler_root=""
+    kind=""
     required=""
     required_how=""
     has_makefile=0
@@ -329,51 +346,70 @@ report_ndk() {
 
     if [ $has_makefile = 1 ]; then
         compiler_root=$(ndk_compiler_root_from_makefile "$makefile" "$project" "$acd_root")
-        required=$(ndk_required_from_makefile "$makefile")
-        if [ -n "$required" ]; then
+        kind=$(ndk_required_from_makefile "$makefile")
+        if [ -n "$kind" ]; then
+            required=$(ndk_version_for_kind "$kind")
             if ndk_incl_feeds_flags "$makefile"; then
                 required_how="active C_INCL_NDK wired through C_INCL_ALL/C_FLAGS in the project Makefile"
             else
-                echo "NOTE=project Makefile has C_INCL_NDK for documented NDK $required, but it is not shown to feed compilation flags through C_INCL_ALL and C_FLAGS (the ApolloCrossDev template shape). Not treating that NDK as an established build requirement. Do not substitute m68k-amigaos/ndk-include."
+                echo "NOTE=project Makefile has C_INCL_NDK for documented NDK $required, but it is not shown to feed compilation flags through C_INCL_ALL and C_FLAGS (the ApolloCrossDev template shape). Not treating that NDK as an established build requirement. Do not substitute m68k-amigaos/ndk-include for ndk39-include or ndk32-include/Include_H."
+                kind=""
                 required=""
                 required_how=""
             fi
         fi
     else
-        required=$(ndk_required_from_agents "$agents")
-        [ -n "$required" ] && required_how="Target OS in AGENTS.md"
+        kind=$(ndk_required_from_agents "$agents")
+        if [ -n "$kind" ]; then
+            required=$(ndk_version_for_kind "$kind")
+            required_how="Target OS in AGENTS.md"
+            if agents_has_amigaos39 "$agents"; then
+                echo "NOTE=Target OS includes AmigaOS 3.9; ApolloCrossDev installs NDK 3.2 at m68k-amigaos/ndk-include (no NDK 3.9 install), so verify every OS function against os/apolloos-and-amigaos-on-v4.md"
+            fi
+        fi
         # Skill default for a Makefile-free build is GCC-6.50-Dev under ACD_ROOT.
         compiler_root=$acd_root/Compilers/GCC-6.50-Dev
     fi
 
     if [ -z "$compiler_root" ]; then
         if [ -n "$required" ]; then
-            echo "NOTE=project requires documented NDK $required ($required_how), but could not establish the effective compiler PREFIX location from the Makefile (recognised shapes: \$(ACD_ROOT)/Compilers/GCC-6.50-Dev|Stable|Base with a resolvable ACD_ROOT, or \$(PWD)/../../Compilers/... when the project is two levels under ApolloCrossDev). Do not infer the path from the Dev/Stable/Base label alone, and do not substitute m68k-amigaos/ndk-include."
+            echo "NOTE=project requires documented NDK $required ($required_how), but could not establish the effective compiler PREFIX location from the Makefile (recognised shapes: \$(ACD_ROOT)/Compilers/GCC-6.50-Dev|Stable|Base with a resolvable ACD_ROOT, or \$(PWD)/../../Compilers/... when the project is two levels under ApolloCrossDev). Do not infer the path from the Dev/Stable/Base label alone, and do not substitute m68k-amigaos/ndk-include for ndk39-include or ndk32-include/Include_H."
         else
-            echo "NOTE=could not establish the effective compiler PREFIX location for NDK headers from the project Makefile. Recognised shapes are \$(ACD_ROOT)/Compilers/GCC-6.50-Dev|Stable|Base when ACD_ROOT resolves, or \$(PWD)/../../Compilers/... when the project is two levels under ApolloCrossDev. Documented paths are m68k-amigaos/ndk39-include (NDK 3.9) and m68k-amigaos/ndk32-include/Include_H (NDK 3.2). Do not substitute m68k-amigaos/ndk-include."
+            echo "NOTE=could not establish the effective compiler PREFIX location for NDK headers from the project Makefile. Recognised shapes are \$(ACD_ROOT)/Compilers/GCC-6.50-Dev|Stable|Base when ACD_ROOT resolves, or \$(PWD)/../../Compilers/... when the project is two levels under ApolloCrossDev. Documented paths are m68k-amigaos/ndk-include (NDK 3.2), m68k-amigaos/ndk13-include (NDK 1.3), and optional user-supplied m68k-amigaos/ndk39-include (NDK 3.9). Do not substitute m68k-amigaos/ndk-include for explicit ndk39-include or unupdated ndk32-include/Include_H."
         fi
         return
     fi
 
-    if [ -z "$required" ]; then
+    if [ -z "$kind" ]; then
         ndk_note_absent_under "$compiler_root"
         return
     fi
 
-    path=$(ndk_path_for "$compiler_root" "$required")
+    path=$(ndk_path_for "$compiler_root" "$kind")
     echo "NDK=$required"
     echo "NDK_PATH=$path"
     echo "NDK_COMPILER=$compiler_root"
     if [ -d "$path" ]; then
         echo "NDK_STATUS=present"
+        if [ "$kind" != "ndk39" ] && agents_has_amigaos39 "$agents"; then
+            echo "NOTE=Target OS includes AmigaOS 3.9 while the Makefile builds with NDK $required; check every OS function against os/apolloos-and-amigaos-on-v4.md"
+        fi
         return
     fi
     echo "NDK_STATUS=absent"
     msg="documented NDK $required directory is absent at $path (required by $required_how; checked under $compiler_root)"
-    if [ -d "$compiler_root/m68k-amigaos/ndk-include" ]; then
-        msg="$msg. m68k-amigaos/ndk-include is present there and is not a documented substitute"
-    else
-        msg="$msg. Do not substitute m68k-amigaos/ndk-include"
+    if [ "$kind" = "ndk39" ]; then
+        if [ -d "$compiler_root/m68k-amigaos/ndk-include" ]; then
+            msg="$msg. ApolloCrossDev does not install ndk39-include by default; m68k-amigaos/ndk-include is present there (NDK 3.2) and is not a documented substitute for NDK 3.9 headers"
+        else
+            msg="$msg. ApolloCrossDev does not install ndk39-include by default; do not substitute m68k-amigaos/ndk-include"
+        fi
+    elif [ "$kind" = "ndk32" ]; then
+        if [ -d "$compiler_root/m68k-amigaos/ndk-include" ]; then
+            msg="$msg. m68k-amigaos/ndk-include is present there (ApolloCrossDev PR #38 NDK 3.2 path) and is not a documented substitute for an explicit ndk32-include/Include_H path; update C_INCL_NDK to ndk-include if NDK 3.2 is intended"
+        else
+            msg="$msg. Do not substitute m68k-amigaos/ndk-include"
+        fi
     fi
     problem "$msg"
 }
@@ -414,6 +450,9 @@ fi
 template="$root/Projects/_makefiles/Makefile"
 if [ -f "$template" ]; then
     echo "TEMPLATE=$(sed -n 's/^# ApolloCrossDev Makefile Template //p' "$template" | head -n 1)"
+    if grep -qE '^(upload_all|upload):' "$template"; then
+        echo "NOTE=the Makefile template still uploads to the V4 (older than ApolloCrossDev v1.2 of 2026-11-08): update ApolloCrossDev (git pull)"
+    fi
 else
     problem "$template is missing"
 fi
