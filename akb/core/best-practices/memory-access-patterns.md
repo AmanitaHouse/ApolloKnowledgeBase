@@ -18,6 +18,8 @@ sources:
   - "TuKo1982, 68080 compilation and optimisation guide (2026-10-30), sections 0 (rule 16), 5.2 and 12"
   - "Gunnar (core developer), Simply 68080 coding guidelines, draft (2026-11-03)"
   - "Gunnar (core developer), answers to questions on the guidelines, 2026-11-03"
+  - "Gunnar (core developer), Simply 68080 coding guidelines, version of 2026-11-23"
+  - "Gunnar (core developer), answers on the guidelines, 2026-11-24"
 ---
 
 ## Goal
@@ -36,7 +38,10 @@ overlap.
 - Put data that is used together in the same 64-byte line.
 - Don't use a table for anything you can compute in 16 cycles or less (G,
   2026-11-03). MUL and DIV beat a table; a SIN table makes sense. Keep the
-  tables you do use small and hot.
+  tables you do use small and hot. A typical table miss costs about 16
+  cycles of stall; use 16 as the reference (G, 2026-11-24). So 10 cycles of
+  arithmetic can beat a table access (G, 2026-11-23). The 27 measured below
+  is a bad case: dependent random reads over 4 MB (M).
 - Avoid rows exactly 64 KB apart: they alias in the cache.
 - Use `touch d8(An,Dn)` 12–15 cycles ahead only for random accesses, never
   on a sequential stream.
@@ -45,8 +50,9 @@ overlap.
   loop to run at about 1 iteration per cycle (G); this is still to be
   measured.
 - Write in address order too. The cache is write-through with write
-  combining: the CPU collects writes for a few cycles before committing them,
-  which makes memclr and memcopy loops efficient (G).
+  combining: the CPU collects writes for a few cycles and combines them into
+  16-byte chunks before committing them, which makes memclr and memcopy
+  loops efficient (G, 2026-11-23).
 
 ## Evidence
 

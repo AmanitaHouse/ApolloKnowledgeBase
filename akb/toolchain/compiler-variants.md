@@ -20,6 +20,7 @@ sources:
   - "github.com/WDrijver/ApolloCrossDev pull request #15 (removes double-indirect-fix.patch) and issue #14"
   - "WDrijver (ApolloCrossDev maintainer), 2026-11-04"
   - "WDrijver (maintainer), 2026-11-11: LineA instructions are not yet implemented; only a few unreleased test cores had them"
+  - "github.com/WDrijver/ApolloCrossDev pull requests #26, #28, #29, #30, #34, #35 and #37 (merged 2026-11-16 to 2026-11-25), install scripts at commit c1fba26a4"
 ---
 
 ## Summary
@@ -34,17 +35,17 @@ and differ mainly in which Apollo 68080 patches they apply. Use GCC-6.50-Dev.
 
 | Variant | Script | Apollo patches applied | Use |
 |---|---|---|---|
-| GCC-6.50-Dev | `GCC-6.50-Dev-Linux.sh`, `-MacOS.sh` | 12 (see below) | Default, latest |
-| GCC-6.50-Stable | `GCC-6.50-Stable-Linux.sh`, `-MacOS.sh` | 5 | Fallback if GCC-6.50-Dev gives problems |
+| GCC-6.50-Dev | `GCC-6.50-Dev-Linux.sh`, `-MacOS.sh` | 19 (see below) | Default, latest |
+| GCC-6.50-Stable | `GCC-6.50-Stable-Linux.sh`, `-MacOS.sh` | 7 | Fallback if GCC-6.50-Dev gives problems |
 | GCC-6.50-Base | `GCC-6.50-Base-Linux.sh`, `-MacOS.sh` | none | Original baseline (November 2024) |
 
 Each variant installs into its own folder `Compilers/<variant>`, so several
 can be installed side by side. All three set `MUIMASTER_VMIN` to 19 in
 `mui.h`, so MUI programs also open on MUI 3.8 (from 2026-11-03).
 
-Patches applied by GCC-6.50-Dev from ApolloCrossDev pull request #15
-(2026-11-04), from
-`Compilers/_archives/patches/`:
+Patches applied by GCC-6.50-Dev (install scripts at ApolloCrossDev commit
+`c1fba26a4`, 2026-11-25), from `Compilers/_archives/patches/`. The first
+twelve date from ApolloCrossDev pull request #15 (2026-11-04):
 
 | Patch | Author |
 |---|---|
@@ -60,6 +61,13 @@ Patches applied by GCC-6.50-Dev from ApolloCrossDev pull request #15
 | `m68k-mrtd-call-pop.patch` | TuKo1982 |
 | `m68k-sincos-constraint-fix.patch` | TuKo1982 |
 | `m68k-dbra-hi-addrreg-fix.patch` | TuKo1982 |
+| `m68k-btst-mem-offset-fix.patch` (PR #26, 2026-11-16) | WDrijver |
+| `reload-ind-equiv-offset-fix.patch` (PR #28, 2026-11-17) | WDrijver |
+| `bbb-autoinc-converted-insn-fix.patch` (PR #29, 2026-11-24) | delwall |
+| `bbb-invalidate-mem-fix.patch` (PR #30, 2026-11-24) | delwall |
+| `bbb-autoinc-fixup-constraints-fix.patch` (PR #34, 2026-11-24) | WDrijver |
+| `bbb-propagate-moves-bb-boundary-fix.patch` (PR #35, 2026-11-25) | WDrijver |
+| `bbb-propagate-moves-addr-exit-fix.patch` (PR #37, 2026-11-25) | WDrijver |
 
 Until then GCC-6.50-Dev also applied `double-indirect-fix.patch` by Marcel
 (r3dbug). It stopped GCC from generating memory indirect addressing, and
@@ -67,8 +75,9 @@ made GCC crash on computed gotos through a table (`jmp ([table,dN.l*4])`,
 for example in Lua's `lvm.c`). It was removed because the 68080 has full
 double indirect addressing (WDrijver, 2026-11-04).
 
-GCC-6.50-Stable applies `q2g-stable.patch` and the four patches by Morten,
-none by TuKo1982.
+GCC-6.50-Stable applies `q2g-stable.patch`, the four patches by Morten,
+`m68k-btst-mem-offset-fix.patch` and `reload-ind-equiv-offset-fix.patch`.
+It applies none by TuKo1982 and none of the bbb fixes.
 
 ### Known GCC bugs and which variant fixes them
 
@@ -79,11 +88,25 @@ none by TuKo1982.
 | ICE with `-mrtd` | [gcc-mrtd-calling-convention.md](pitfalls/gcc-mrtd-calling-convention.md) | Fixed | Not fixed | Not fixed |
 | ICE on `sinf`/`cosf` with `-ffast-math` | [gcc-fsincos-ice.md](pitfalls/gcc-fsincos-ice.md) | Fixed | Not fixed | Not fixed |
 | 16-bit loop counter in an address register runs away | [gcc-dbra-address-register-loop.md](pitfalls/gcc-dbra-address-register-loop.md) | Fixed | Not fixed | Not fixed |
+| `btst` tests the wrong byte of a bit field in memory | [gcc-btst-memory-bit-number.md](pitfalls/gcc-btst-memory-bit-number.md) | Fixed | Fixed | Not fixed |
+| Memory indirect operand on the wrong stack slot after a call | [gcc-double-indirect-stack-slot.md](pitfalls/gcc-double-indirect-stack-slot.md) | Fixed | Fixed | Not fixed |
+| bbb pass fixes up a post-increment it just made; pointer stride too small | [gcc-bbb-autoinc-converted-insn.md](pitfalls/gcc-bbb-autoinc-converted-insn.md) | Fixed | Not fixed | Not fixed |
+| bbb pass keeps a stale memory value after a store; wrong 64-bit results | [gcc-bbb-stale-memory-value.md](pitfalls/gcc-bbb-stale-memory-value.md) | Fixed | Not fixed | Not fixed |
+| ICE "insn does not satisfy its constraints" after an auto-increment | [gcc-bbb-autoinc-fixup-ice.md](pitfalls/gcc-bbb-autoinc-fixup-ice.md) | Fixed | Not fixed | Not fixed |
+| ICE in `schedule_region` when bbb moves a copy out of a loop | [gcc-bbb-propagate-moves-ice.md](pitfalls/gcc-bbb-propagate-moves-ice.md) | Fixed | Not fixed | Not fixed |
+| bbb pass gives an early loop exit the old pointer value | [gcc-bbb-propagate-moves-loop-exit.md](pitfalls/gcc-bbb-propagate-moves-loop-exit.md) | Fixed | Not fixed | Not fixed |
 | ICE in `print_operand_address2` on computed gotos (Dev builds of 2026-11-03 only) | [double-memory-indirect.md](../core/pitfalls/double-memory-indirect.md) | Fixed (patch removed) | Not affected | Not affected |
 
-"Fixed" means the install script applies the patch on 2026-11-03. A fix only
-reaches you when you reinstall the variant; an older install still has the
-bug.
+"Fixed" means the install script applies the patch at ApolloCrossDev commit
+`c1fba26a4` (2026-11-25). A fix only reaches you when you reinstall the
+variant; an older install still has the bug. Each pitfall gives the date from
+which an install has the fix.
+
+`m68k-amigaos-gcc --version` prints `6.5.0b 240104120137` for every install,
+so it does not tell which patches you have. Check the date of the install
+(`ls -l <prefix>/libexec/gcc/m68k-amigaos/6.5.0b/cc1`) against the merge dates
+above. When a bbb bug is suspected, compile the file again with `-fbbb=-`: if
+the problem goes away, it is in the bbb pass.
 
 ### 68080 instructions the compiler generates
 

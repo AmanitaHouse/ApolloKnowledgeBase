@@ -55,16 +55,15 @@ C and C++: `-O2 -m68080 -m68881 -ffast-math -fomit-frame-pointer`. Details in
 
 ### What else is installed
 
-- Amiga NDK headers via amiga-gcc (`NDK=3.2` by default) under
-  `ndk-include`, plus a derived `ndk13-include` tree. Project Makefiles
-  still name `ndk32-include` / `ndk39-include`; see
+- Amiga NDK 3.2 in `<prefix>/m68k-amigaos/ndk-include` (the default) and
+  NDK 1.3 in `.../ndk13-include`; no NDK 3.9, see
   `toolchain/target-os-headers.md`
-- C runtimes libnix (default) and clib2
-- Libraries and headers: MUI 5, SDL (base, mixer, ttf, image), Vorbis, Ogg,
-  GL, FreeType, Timidity, zlib, minizip, Lua, MPEGA, P96 headers
-- DevPac includes for assembly, in `<prefix>/m68k-amigaos/DevPac`
-- ApolloExplorer (`acp`) to upload files to an Apollo V4 over the network
-- bgdbserver, a GDB server that runs on the Apollo V4 for remote debugging
+- C runtime libnix (`-noixemul`); clib2 is not installed
+- Libraries and headers: MUI 5 (`include/mui`), SDL (base, mixer, ttf,
+  image, net), Vorbis, Ogg, GL, FreeType, Timidity, zlib, minizip, Lua,
+  MPEGA, P96 headers
+- DevPac includes and libraries for assembly, in
+  `<prefix>/m68k-amigaos/DevPac` (`Include`, `Lib`)
 - ApolloLib in `Projects/ApolloLib`: sound, picture, PIP, pointer, input,
   copy and blit routines and serial debug output for SAGA and the 68080,
   see [toolchain/apollolib/](apollolib/index.md)
@@ -90,11 +89,11 @@ to `Compilers/GCC-6.50-Dev/_logs/*_err.log` and does not stop on errors, so
 check that the binaries above exist afterwards. A full build takes about
 25 minutes on a 4-core GitHub Actions runner.
 
-For uploading to the Apollo V4, set its IP address in `~/.bashrc`:
-
-```sh
-export AMIGAHOST="192.168.2.100"
-```
+Since ApolloCrossDev v1.2 (2026-11-08) the install no longer includes
+ApolloExplorer (`acp`) or bgdbserver, and the Makefiles no longer upload.
+Copy the program to the Apollo V4 yourself. For copying and running over the
+network with ApolloExplorer, installed separately, see
+[testing-on-v4-hardware.md](../guides/testing-on-v4-hardware.md).
 
 ### Reference manuals
 

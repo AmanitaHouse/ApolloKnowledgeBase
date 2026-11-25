@@ -10,8 +10,11 @@ Recognises the documented shapes only:
   Effective only when the project sits two levels under the ApolloCrossDev
   root. Setting APOLLOCROSSDEV does not change a v1.0 PREFIX.
 
-Never invents a path from the Dev/Stable/Base label alone. Never treats
-m68k-amigaos/ndk-include as a documented NDK. This module does not run make.
+Never invents a path from the Dev/Stable/Base label alone. Recognises the
+documented NDK 3.2 path m68k-amigaos/ndk-include (and NDK 1.3 at
+m68k-amigaos/ndk13-include) when selected by the project Makefile, and never
+substitutes ndk-include for explicit ndk39-include or unupdated
+ndk32-include/Include_H paths. This module does not run make.
 
 Usage:
   python tools/resolve_compiler.py --makefile FILE --project DIR [--acd-root DIR]
@@ -27,9 +30,17 @@ import sys
 VARIANTS = ("GCC-6.50-Dev", "GCC-6.50-Stable", "GCC-6.50-Base")
 GCC_NAME = "m68k-amigaos-gcc"
 GPP_NAME = "m68k-amigaos-g++"
+SAFE_COMMANDS = ("make", "make compile", "make cleanbefore build")
 NDK_PATHS = {
     "3.9": ("m68k-amigaos", "ndk39-include"),
-    "3.2": ("m68k-amigaos", "ndk32-include", "Include_H"),
+    "3.2": ("m68k-amigaos", "ndk-include"),
+    "1.3": ("m68k-amigaos", "ndk13-include"),
+}
+NDK_DIR_PATHS = {
+    "ndk39": ("3.9", ("m68k-amigaos", "ndk39-include")),
+    "ndk": ("3.2", ("m68k-amigaos", "ndk-include")),
+    "ndk32": ("3.2", ("m68k-amigaos", "ndk32-include", "Include_H")),
+    "ndk13": ("1.3", ("m68k-amigaos", "ndk13-include")),
 }
 
 
@@ -131,16 +142,26 @@ def prefix_shape(line):
     return "unknown"
 
 
-def required_ndk_version(text):
-    """Last uncommented C_INCL_NDK that names a documented fragment, or None."""
+def required_ndk_spec(text):
+    """Return (version, kind) for the last uncommented C_INCL_NDK, or (None, None)."""
     value = last_assignment(text, "C_INCL_NDK")
     if not value:
-        return None
+        return None, None
     if "ndk39-include" in value:
-        return "3.9"
+        return "3.9", "ndk39"
     if "ndk32-include" in value:
-        return "3.2"
-    return None
+        return "3.2", "ndk32"
+    if "ndk13-include" in value:
+        return "1.3", "ndk13"
+    if re.search(r"(?:^|[/\\\s])ndk-include(?=$|[/\\\s])", value):
+        return "3.2", "ndk"
+    return None, None
+
+
+def required_ndk_version(text):
+    """Last uncommented C_INCL_NDK that names a documented fragment, or None."""
+    version, _kind = required_ndk_spec(text)
+    return version
 
 
 def ndk_feeds_flags(text):
@@ -164,6 +185,13 @@ def ndk_directory(prefix, version):
     if not parts or not prefix:
         return None
     return os.path.join(prefix, *parts)
+
+
+def ndk_directory_for_kind(prefix, kind):
+    entry = NDK_DIR_PATHS.get(kind)
+    if not entry or not prefix:
+        return None
+    return os.path.join(prefix, *entry[1])
 
 
 def gcc_path(prefix):
@@ -303,9 +331,10 @@ def resolve_prefix(text, project, acd_root=None, env=None, home=None):
 
 def resolve_ndk(text, prefix):
     """Return NDK readiness for an active wired C_INCL_NDK requirement."""
-    version = required_ndk_version(text)
+    version, kind = required_ndk_spec(text)
     info = {
         "required": None,
+        "kind": None,
         "path": None,
         "status": "none",
         "reason": "",
@@ -316,6 +345,7 @@ def resolve_ndk(text, prefix):
         return info
     if not ndk_feeds_flags(text):
         info["required"] = version
+        info["kind"] = kind
         info["status"] = "unwired"
         info["reason"] = (
             f"C_INCL_NDK names documented NDK {version}, but it is not shown to "
@@ -323,8 +353,9 @@ def resolve_ndk(text, prefix):
         )
         return info
     info["required"] = version
+    info["kind"] = kind
     info["wired"] = True
-    path = ndk_directory(prefix, version)
+    path = ndk_directory_for_kind(prefix, kind)
     info["path"] = path
     if not prefix:
         info["status"] = "unresolved"
@@ -338,9 +369,22 @@ def resolve_ndk(text, prefix):
         info["reason"] = f"documented NDK {version} is present at {path}"
         return info
     info["status"] = "absent"
-    info["reason"] = (
-        f"documented NDK {version} directory is absent at {path}"
-    )
+    if kind == "ndk39":
+        info["reason"] = (
+            f"documented NDK 3.9 directory is absent at {path} "
+            "(ApolloCrossDev does not install ndk39-include by default; "
+            "m68k-amigaos/ndk-include is NDK 3.2 and is not a substitute for NDK 3.9 headers)"
+        )
+    elif kind == "ndk32":
+        info["reason"] = (
+            f"documented NDK 3.2 directory is absent at {path} "
+            "(ApolloCrossDev PR #38 installs NDK 3.2 at m68k-amigaos/ndk-include, "
+            "not ndk32-include/Include_H)"
+        )
+    else:
+        info["reason"] = (
+            f"documented NDK {version} directory is absent at {path}"
+        )
     return info
 
 
@@ -363,7 +407,7 @@ def assess_build_readiness(text, project, acd_root=None, env=None, home=None):
 
 def agents_ready_command(verdict_command, assessment):
     """Return the Make command to document, or None when blocked."""
-    if verdict_command not in ("make compile", "make cleanbefore build"):
+    if verdict_command not in SAFE_COMMANDS:
         return None
     if not assessment["ready"]:
         return None
@@ -392,10 +436,19 @@ def blocked_build_body(verdict, assessment):
             )
     if ndk["status"] == "absent":
         lines.append("# " + " ".join(ndk["reason"].replace("<", "").replace(">", "").split()))
-        lines.append(
-            "# Do not substitute m68k-amigaos/ndk-include for the documented NDK path."
-        )
-    if command in ("make compile", "make cleanbefore build"):
+        if ndk.get("kind") == "ndk39":
+            lines.append(
+                "# Do not substitute m68k-amigaos/ndk-include for NDK 3.9 headers."
+            )
+        elif ndk.get("kind") == "ndk32":
+            lines.append(
+                "# Update C_INCL_NDK to $(PREFIX)/$(TARGET)/ndk-include if NDK 3.2 is intended."
+            )
+        else:
+            lines.append(
+                "# Restore the required NDK directory under the compiler PREFIX."
+            )
+    if command in SAFE_COMMANDS:
         lines.append(
             f"# A non-uploading Make target was classified ({command}); "
             "that is upload safety only, not build readiness."

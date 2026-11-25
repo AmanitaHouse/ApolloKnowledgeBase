@@ -427,10 +427,10 @@ def check_scaffold():
                 fail("guided main.c was not filled in")
             if "PROJECT_NAME = demo1" not in makefile:
                 fail("Makefile PROJECT_NAME was not set")
-            if not re.search(r"(?m)^C_INCL_NDK = \$\(PREFIX\)/\$\(TARGET\)/ndk39-include$", makefile):
-                fail("ndk39-include line was not activated")
-            if re.search(r"(?m)^C_INCL_NDK = \$\(PREFIX\)/\$\(TARGET\)/ndk32-include", makefile):
-                fail("ndk32-include line is still active")
+            if not re.search(r"(?m)^C_INCL_NDK = \$\(PREFIX\)/\$\(TARGET\)/ndk32-include/Include_H$", makefile):
+                fail("default 3-OS list did not keep NDK 3.2 (ndk32-include/Include_H) active")
+            if re.search(r"(?m)^C_INCL_NDK = \$\(PREFIX\)/\$\(TARGET\)/ndk39-include$", makefile):
+                fail("default 3-OS list unexpectedly activated ndk39-include")
             if repo != "ApolloTeam-dev/ApolloKnowledgeBase":
                 fail(f"explicit upstream URL was not recorded, got {repo}")
             with open(os.path.join(guided, "AGENTS.md"), encoding="utf-8") as fh:
@@ -592,20 +592,15 @@ def parse_kv(output):
 
 
 def smoke_compile(info, project):
-    """Compile the starter when the documented NDK is absent.
+    """Compile the starter when the Makefile NDK path is absent.
 
-    Success here is not a guided-build pass. ndk-include is not the path in
-    toolchain/target-os-headers.md.
+    Success here is not a guided-build pass if the Makefile asked for another
+    path such as ndk39-include or legacy ndk32-include/Include_H.
     """
     prefix = info["PREFIX"]
-    documented = [
-        os.path.join(prefix, "m68k-amigaos", "ndk39-include"),
-        os.path.join(prefix, "m68k-amigaos", "ndk32-include", "Include_H"),
-    ]
-    missing = [path for path in documented if not os.path.isdir(path)]
     fallback = os.path.join(prefix, "m68k-amigaos", "ndk-include")
     gcc = os.path.join(prefix, "bin", "m68k-amigaos-gcc")
-    if not missing or not os.path.isdir(fallback) or not os.path.isfile(gcc):
+    if not os.path.isdir(fallback) or not os.path.isfile(gcc):
         return
     main_c = os.path.join(project, "main.c")
     output = os.path.join(project, "akbprobe")
@@ -618,7 +613,7 @@ def smoke_compile(info, project):
         main_c, "-o", output,
     ]
     print("RESULT compiler-smoke-command " + " ".join(command))
-    print("NOTE=ndk-include is present on this checkout and is not the NDK path documented in toolchain/target-os-headers.md")
+    print("NOTE=ndk-include is present (ApolloCrossDev PR #38 NDK 3.2 path); the Makefile named a different C_INCL_NDK path")
     result = subprocess.run(
         command, cwd=project, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
     )
@@ -631,6 +626,66 @@ def smoke_compile(info, project):
 
 def lines_of(text):
     return text.strip("\n") + "\n"
+
+
+V12_LOCAL = lines_of("""
+# ApolloCrossDev Makefile Template v1.2
+PWD = $(shell pwd)
+ACD_ROOT ?= $(or $(APOLLOCROSSDEV),$(PWD)/../..)
+PREFIX = $(ACD_ROOT)/Compilers/GCC-6.50-Dev
+TARGET = m68k-amigaos
+PROJECT_NAME = probe
+PROJECT_DIR = $(PWD)
+C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc
+# C_COMPILER = $(PREFIX)/bin/m68k-amigaos-g++
+C_LIB = -noixemul
+C_INCL_CLB = $(PREFIX)/$(TARGET)/libnix/include
+APOLLOLIB = $(ACD_ROOT)/Projects/ApolloLib
+C_INCL_SYS = $(PREFIX)/$(TARGET)/sys-include
+C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk-include
+# C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk13-include
+C_INCL_ALL = -I. -I$(C_INCL_CLB) -I$(C_INCL_SYS) -I$(C_INCL_NDK)
+C_OPTIONS = -O2 -m68080 -m68881 -ffast-math -fomit-frame-pointer -DREGPARM=4
+C_FLAGS = $(C_LIB) $(C_OPTIONS) $(C_INCL_ALL)
+S_COMPILER = $(PREFIX)/bin/vasmm68k_mot
+S_INCLUDE = $(PREFIX)/$(TARGET)/DevPac/Include
+S_FLAGS = -Fhunk -m68080 -m68881 -opt-speed -linedebug -kick1hunks -I$(S_INCLUDE)
+O_LINKER = $(PREFIX)/bin/m68k-amigaos-gcc
+C_SOURCEDIR = $(PROJECT_DIR)
+S_SOURCEDIR = $(PROJECT_DIR)
+C_OBJECTDIR = $(PROJECT_DIR)
+S_OBJECTDIR = $(PROJECT_DIR)
+LIB_OBJECTDIR = $(PROJECT_DIR)/.apollolib
+C_FILES = $(wildcard $(C_SOURCEDIR)/*.c)
+S_FILES = $(wildcard $(S_SOURCEDIR)/*.s)
+LIB_C_FILES = $(if $(APOLLOLIB),$(wildcard $(APOLLOLIB)/*.c))
+LIB_S_FILES = $(if $(APOLLOLIB),$(wildcard $(APOLLOLIB)/*.s))
+O_FILES = $(patsubst $(C_SOURCEDIR)/%.c,$(C_OBJECTDIR)/%.o,$(C_FILES)) $(patsubst $(S_SOURCEDIR)/%.s,$(S_OBJECTDIR)/%.o,$(S_FILES)) $(patsubst $(APOLLOLIB)/%.c,$(LIB_OBJECTDIR)/%.o,$(LIB_C_FILES)) $(patsubst $(APOLLOLIB)/%.s,$(LIB_OBJECTDIR)/%.o,$(LIB_S_FILES))
+EXE = $(PROJECT_DIR)/$(PROJECT_NAME)
+all: init cleanbefore build cleanafter exit
+init:
+	@clear 2>/dev/null || true
+	@mkdir -p $(LIB_OBJECTDIR)
+	@echo "start"
+cleanbefore:
+	@rm -f $(C_OBJECTDIR)/*.o $(S_OBJECTDIR)/*.o $(LIB_OBJECTDIR)/*.o $(EXE)
+build: $(EXE)
+	@echo "link done"
+$(EXE): $(O_FILES)
+	@$(O_LINKER) $(O_FILES) $(C_FLAGS) -o $(EXE) >>/dev/null
+$(C_OBJECTDIR)/%.o: $(C_SOURCEDIR)/%.c
+	@$(C_COMPILER) -c $(C_FLAGS) -o $@ $< >>/dev/null
+$(S_OBJECTDIR)/%.o: $(S_SOURCEDIR)/%.s
+	@$(S_COMPILER) $(S_FLAGS) -o $@ $< >>/dev/null
+$(LIB_OBJECTDIR)/%.o: $(APOLLOLIB)/%.c
+	@$(C_COMPILER) -c $(C_FLAGS) -I$(APOLLOLIB) -o $@ $< >>/dev/null
+$(LIB_OBJECTDIR)/%.o: $(APOLLOLIB)/%.s
+	@$(S_COMPILER) $(S_FLAGS) -I$(APOLLOLIB) -o $@ $< >>/dev/null
+cleanafter:
+	@rm -f $(C_OBJECTDIR)/*.o $(S_OBJECTDIR)/*.o $(LIB_OBJECTDIR)/*.o
+exit:
+	@echo "done"
+""")
 
 
 V12_COMPILE = lines_of("""
@@ -782,8 +837,29 @@ def check_build_commands():
         fail("find-acd.sh still recommends make cleanbefore build unconditionally")
     if "PROJECT_PREFIX" not in script or "COMPILER_STATUS" not in script:
         fail("find-acd.sh does not report PROJECT_PREFIX / COMPILER_STATUS")
+    expect_command("v1.2 local", V12_LOCAL, "make")
     expect_command("v1.2 compile", V12_COMPILE, "make compile")
     expect_command("v1.0 cleanbefore", V10_CLEANBEFORE, "make cleanbefore build")
+    expect_refused(
+        "all uploads via build",
+        "all: init build\ninit:\n\t@echo start\nbuild:\n\tacp app host\n",
+        "upload-capable",
+    )
+    expect_refused(
+        "all recursive upload",
+        "all: init build\ninit:\n\t@echo start\nbuild:\n\t@$(MAKE) ship\nship:\n\tacp app host\n",
+        "upload-capable",
+    )
+    expect_refused(
+        "all stub without build or compiler",
+        "all:\n\t@echo ok\n",
+        "unverified",
+    )
+    expect_refused(
+        "all unverified command",
+        "all: build\nbuild:\n\tdeploy-to-v4 app\n",
+        "unverified",
+    )
     expect_refused(
         "direct upload",
         "cleanbefore:\n\t@rm -f app\nbuild:\n\tacp app host\n",
@@ -1002,6 +1078,7 @@ def check_build_commands():
         home = tempfile.mkdtemp(prefix="akb-acd-home-")
         acd = tempfile.mkdtemp(prefix="akb-acd-root-")
         safe_project = tempfile.mkdtemp(prefix="akb-acd-safe-")
+        local_project = tempfile.mkdtemp(prefix="akb-acd-local-")
         unsafe_project = tempfile.mkdtemp(prefix="akb-acd-unsafe-")
         try:
             os.makedirs(os.path.join(acd, "Compilers"))
@@ -1009,6 +1086,7 @@ def check_build_commands():
             with open(os.path.join(acd, "Projects", "_makefiles", "Makefile"), "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(V12_COMPILE)
             write_makefile(safe_project, V12_COMPILE)
+            write_makefile(local_project, V12_LOCAL)
             # Safe ApolloCrossDev template, unsafe project Makefile: the
             # project file must decide BUILD=, not the template alone.
             write_makefile(
@@ -1028,6 +1106,10 @@ def check_build_commands():
                     [shell, script_path, "--offline", safe_project],
                     env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
                 )
+                local_run = subprocess.run(
+                    [shell, script_path, "--offline", local_project],
+                    env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
+                )
                 unsafe_run = subprocess.run(
                     [shell, script_path, "--offline", unsafe_project],
                     env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
@@ -1042,6 +1124,9 @@ def check_build_commands():
                 fail(f"find-acd.sh did not report the verified command:\n{safe_run.stdout}")
             if "build with: make cleanbefore build" in safe_run.stdout:
                 fail("find-acd.sh used the unconditional fallback")
+            local_info = parse_kv(local_run.stdout)
+            if local_info.get("BUILD") != "make":
+                fail(f"find-acd.sh did not classify V12_LOCAL as make:\n{local_run.stdout}")
             unsafe_info = parse_kv(unsafe_run.stdout)
             if unsafe_info.get("TEMPLATE") != "v1.2":
                 fail(
@@ -1069,6 +1154,7 @@ def check_build_commands():
             shutil.rmtree(home, ignore_errors=True)
             shutil.rmtree(acd, ignore_errors=True)
             shutil.rmtree(safe_project, ignore_errors=True)
+            shutil.rmtree(local_project, ignore_errors=True)
             shutil.rmtree(unsafe_project, ignore_errors=True)
     if len(errors) == before:
         print("WORKFLOW build-command classification: PASS")
@@ -1571,6 +1657,88 @@ def check_ndk_diagnostics():
         finally:
             shutil.rmtree(acd, ignore_errors=True)
             shutil.rmtree(project, ignore_errors=True)
+
+        # 13. Standard PR #38 ndk-include present, even when AGENTS.md targets AmigaOS 3.9.
+        acd = tempfile.mkdtemp(prefix="akb-ndk-pr38-ok-")
+        project = tempfile.mkdtemp(prefix="akb-ndk-proj-pr38-ok-")
+        try:
+            stub_acd_compilers(acd, {"GCC-6.50-Dev": ["ndk-include"]})
+            write_makefile(project, V12_LOCAL)
+            with open(os.path.join(project, "AGENTS.md"), "w", encoding="utf-8", newline="\n") as fh:
+                fh.write("# AGENTS.md: pr38\n- **Target OS:** AmigaOS 3.9\n")
+            result = run_find_acd(shell, script_path, project, acd, home)
+            info = parse_kv(result.stdout)
+            expected_path = os.path.join(acd, "Compilers", "GCC-6.50-Dev", "m68k-amigaos", "ndk-include")
+            if result.returncode != 0 or info.get("NDK") != "3.2" or info.get("NDK_STATUS") != "present":
+                fail(f"pr38-ndk-include-present: expected NDK 3.2 present and exit 0:\n{result.stdout}")
+            if info.get("NDK_PATH") != expected_path:
+                fail(f"pr38-ndk-include-present: wrong NDK_PATH {info.get('NDK_PATH')!r}")
+            if info.get("BUILD") != "make":
+                fail(f"pr38-ndk-include-present: expected BUILD=make:\n{result.stdout}")
+            if ndk_problem_lines(result.stdout):
+                fail(f"pr38-ndk-include-present: unexpected NDK PROBLEM:\n{result.stdout}")
+            if "apolloos-and-amigaos-on-v4.md" not in result.stdout:
+                fail(f"pr38-ndk-include-present: missing AmigaOS 3.9 manual check NOTE:\n{result.stdout}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+
+        # 14. Standard PR #38 ndk-include absent -> PROBLEM=.
+        acd = tempfile.mkdtemp(prefix="akb-ndk-pr38-miss-")
+        project = tempfile.mkdtemp(prefix="akb-ndk-proj-pr38-miss-")
+        try:
+            stub_acd_compilers(acd, {"GCC-6.50-Dev": []})
+            write_makefile(project, V12_LOCAL)
+            result = run_find_acd(shell, script_path, project, acd, home)
+            info = parse_kv(result.stdout)
+            problems = ndk_problem_lines(result.stdout)
+            if result.returncode == 0 or info.get("NDK") != "3.2" or info.get("NDK_STATUS") != "absent" or not problems:
+                fail(f"pr38-ndk-include-absent: expected NDK 3.2 absent PROBLEM:\n{result.stdout}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+
+        # 15. Explicit ndk39-include absent while ndk-include IS present -> never substitute.
+        acd = tempfile.mkdtemp(prefix="akb-ndk-39vspr38-")
+        project = tempfile.mkdtemp(prefix="akb-ndk-proj-39vspr38-")
+        try:
+            stub_acd_compilers(acd, {"GCC-6.50-Dev": ["ndk-include"]})
+            write_makefile(
+                project,
+                makefile_with_ndk(
+                    "GCC-6.50-Dev",
+                    "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk39-include\n",
+                ),
+            )
+            result = run_find_acd(shell, script_path, project, acd, home)
+            info = parse_kv(result.stdout)
+            problems = ndk_problem_lines(result.stdout)
+            if result.returncode == 0 or info.get("NDK") != "3.9" or info.get("NDK_STATUS") != "absent" or not problems:
+                fail(f"explicit-39-absent-with-ndk-include: expected NDK 3.9 absent PROBLEM:\n{result.stdout}")
+            elif "not a documented substitute" not in problems[0]:
+                fail(f"explicit-39-absent-with-ndk-include: must reject ndk-include as substitute:\n{result.stdout}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+
+        # 16. Makefile-free project targeting AmigaOS 3.9 uses ndk-include + manual-check NOTE.
+        acd = tempfile.mkdtemp(prefix="akb-ndk-nomk-39-")
+        project = tempfile.mkdtemp(prefix="akb-ndk-proj-nomk-39-")
+        try:
+            stub_acd_compilers(acd, {"GCC-6.50-Dev": ["ndk-include"]})
+            with open(os.path.join(project, "AGENTS.md"), "w", encoding="utf-8", newline="\n") as fh:
+                fh.write("# AGENTS.md: nomk\n- **Target OS:** AmigaOS 3.9\n")
+            result = run_find_acd(shell, script_path, project, acd, home)
+            info = parse_kv(result.stdout)
+            if result.returncode != 0 or info.get("NDK") != "3.2" or info.get("NDK_STATUS") != "present":
+                fail(f"makefile-free-amigaos39: expected NDK 3.2 (ndk-include) present:\n{result.stdout}")
+            if ndk_problem_lines(result.stdout):
+                fail(f"makefile-free-amigaos39: must not require missing ndk39-include:\n{result.stdout}")
+            if "apolloos-and-amigaos-on-v4.md" not in result.stdout:
+                fail(f"makefile-free-amigaos39: missing AmigaOS 3.9 manual check NOTE:\n{result.stdout}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
     finally:
         if temporary:
             os.remove(script_path)
@@ -1622,7 +1790,7 @@ def check_toolchain():
             print("REASON=the guided files were not created, so make was not run")
             return
         verdict = classify_build.classify_makefile(makefile_path)
-        if verdict.command not in ("make compile", "make cleanbefore build"):
+        if verdict.command not in ("make", "make compile", "make cleanbefore build"):
             print("RESULT guided-build NOT VERIFIED")
             print(
                 "REASON=the Makefile has no verified non-uploading target, so make was not run: "
@@ -1677,9 +1845,8 @@ def check_toolchain():
             print(
                 "REASON=the Makefile NDK directory is not in this ApolloCrossDev tree: "
                 + "; ".join(missing_ndk)
-                + ". toolchain/target-os-headers.md documents ndk39-include and "
-                "ndk32-include/Include_H. Headers found through another default path "
-                "are not that NDK."
+                + ". toolchain/target-os-headers.md documents ndk-include (NDK 3.2) "
+                "and ndk13-include (NDK 1.3), with optional user-supplied ndk39-include."
             )
             smoke_compile(info, project)
         elif built.returncode == 0 and not noisy and os.path.isfile(exe) and "executable" in kind.lower():
@@ -1708,7 +1875,7 @@ CXX_UNVERIFIED = (
 )
 CXX_NDK = (
     "NOTE=LANGUAGE C++: generating these files does not show that the documented NDK "
-    "directories ndk39-include and ndk32-include/Include_H are installed."
+    "directory ndk-include (or an explicit ndk39-include) is installed."
 )
 CPP_INCOMPLETE_RULE = (
     "NOTE=LANGUAGE C++: the generated Makefile did not compile them with "
@@ -1761,8 +1928,8 @@ CAVEAT_CXX = "\n".join([
     "# A non-uploading Make classification does not verify "
     "C++ compilation, linkage, or hardware execution.",
     "# The starter is main.cpp.",
-    "# Generating files does not show that ndk39-include or "
-    "ndk32-include/Include_H is installed.",
+    "# Generating files does not show that ndk-include "
+    "(or an explicit ndk39-include) is installed.",
 ])
 CAVEAT_ASM = (
     "# A non-uploading Make classification does not verify "
@@ -1848,7 +2015,7 @@ CXX_BLOCK = "\n".join([
     "- Guided setup wrote `main.cpp` for this os-friendly project and did not write `main.c`.",
     "- The generated Makefile discovers project `.cpp` files and compiles them with `m68k-amigaos-g++`. `.c` files stay on the template GCC `C_COMPILER` line. ApolloLib C compilation is unchanged. Assembler rules and `S_FLAGS` are unchanged.",
     "- C++ compilation, linkage, and hardware execution are not verified. A non-uploading Make classification is not that verification.",
-    "- Generating these files does not show that the documented NDK directories `ndk39-include` and `ndk32-include/Include_H` are installed.",
+    "- Generating these files does not show that the documented NDK directory `ndk-include` (or an explicit `ndk39-include`) is installed.",
 ])
 
 ASM_BLOCK = "\n".join([
@@ -1911,8 +2078,8 @@ def run_language(
     stub_acd_compilers(
         acd,
         {
-            "GCC-6.50-Dev": ["ndk39-include"],
-            "GCC-6.50-Stable": ["ndk39-include"],
+            "GCC-6.50-Dev": ["ndk-include", "ndk32-include/Include_H"],
+            "GCC-6.50-Stable": ["ndk-include", "ndk32-include/Include_H"],
         },
     )
     if prep:
@@ -2283,8 +2450,8 @@ def check_language_selection():
         "or that an assembler program was generated.",
         "# The starter is main.cpp.",
         "# No assembler starter was written.",
-        "# Generating files does not show that ndk39-include or "
-        "ndk32-include/Include_H is installed.",
+        "# Generating files does not show that ndk-include "
+        "(or an explicit ndk39-include) is installed.",
     ])
     root, project, result = run_language("assembler and/or C++", v12_lang)
     try:
@@ -2387,8 +2554,9 @@ def check_language_selection():
     finally:
         finish(root)
 
-    # 9. v1.0 and v1.2 shapes: C stays on gcc, .cpp is discovered, safe command kept.
+    # 9. v1.0 and v1.2 shapes (local-only and compile): C stays on gcc, .cpp is discovered, safe command kept.
     for label, template, command in (
+        ("v12-local-classified", V12_LOCAL, "make"),
         ("v12-classified", v12_lang, "make compile"),
         ("v10-classified", v10_lang, "make cleanbefore build"),
     ):
@@ -2660,11 +2828,11 @@ def check_build_readiness():
         # 1. v1.0 in-tree with a valid relative compiler path.
         acd = tempfile.mkdtemp(prefix="akb-ready-v10in-")
         try:
-            stub_acd_compilers(acd, {"GCC-6.50-Stable": ["ndk39-include"], "GCC-6.50-Dev": []})
+            stub_acd_compilers(acd, {"GCC-6.50-Stable": ["ndk32-include/Include_H"], "GCC-6.50-Dev": []})
             project = os.path.join(acd, "Projects", "probev10in")
             os.makedirs(project)
             template = write_makefile(acd, makefile_v10_relative(
-                "C_INCL_NDK  = $(PREFIX)/$(TARGET)/ndk39-include\n"
+                "C_INCL_NDK  = $(PREFIX)/$(TARGET)/ndk32-include/Include_H\n"
             ), "v10in.mk")
             env = os.environ.copy()
             env["HOME"] = home
@@ -2689,10 +2857,8 @@ def check_build_readiness():
         acd = tempfile.mkdtemp(prefix="akb-ready-v10out-acd-")
         project = tempfile.mkdtemp(prefix="akb-ready-v10out-")
         try:
-            stub_acd_compilers(acd, {"GCC-6.50-Stable": ["ndk39-include"], "GCC-6.50-Dev": []})
-            template = write_makefile(project, makefile_v10_relative(
-                "C_INCL_NDK  = $(PREFIX)/$(TARGET)/ndk39-include\n"
-            ), "v10out.mk")
+            stub_acd_compilers(acd, {"GCC-6.50-Stable": ["ndk32-include/Include_H"], "GCC-6.50-Dev": []})
+            template = write_makefile(project, makefile_v10_relative(), "v10out.mk")
             env = os.environ.copy()
             env["HOME"] = home
             env["APOLLOCROSSDEV"] = acd
@@ -2749,20 +2915,13 @@ def check_build_readiness():
             shutil.rmtree(acd, ignore_errors=True)
             shutil.rmtree(project, ignore_errors=True)
 
-        # 3. v1.2 project with a supported and valid ACD_ROOT.
+        # 3. v1.2 project with a supported and valid ACD_ROOT (local-only make & compile).
         acd = tempfile.mkdtemp(prefix="akb-ready-v12ok-acd-")
         project = tempfile.mkdtemp(prefix="akb-ready-v12ok-")
+        local_proj = tempfile.mkdtemp(prefix="akb-ready-v12local-")
         try:
-            stub_acd_compilers(acd, {"GCC-6.50-Dev": ["ndk39-include"]})
-            # Keep a non-uploading compile target from V12_COMPILE shape.
-            text = V12_COMPILE.replace(
-                "C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc\n",
-                "C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc\n"
-                "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk39-include\n"
-                "C_INCL_ALL = -I. -I$(C_INCL_NDK)\n"
-                "C_FLAGS = $(C_INCL_ALL)\n",
-            )
-            template = write_makefile(project, text, "v12ok.mk")
+            stub_acd_compilers(acd, {"GCC-6.50-Dev": ["ndk-include", "ndk32-include/Include_H"]})
+            template = write_makefile(project, V12_COMPILE, "v12ok.mk")
             env = os.environ.copy()
             env["HOME"] = home
             env["APOLLOCROSSDEV"] = acd
@@ -2770,9 +2929,15 @@ def check_build_readiness():
             commands, agents = agents_commands(project)
             if commands != ["make compile"]:
                 fail(f"v12-valid readiness expected make compile: {commands}\n{result.stdout}\n{agents}")
+            local_tpl = write_makefile(local_proj, V12_LOCAL, "v12local.mk")
+            local_res = run_py(guided_args(local_proj, local_tpl), env=env)
+            local_cmds, local_agents = agents_commands(local_proj)
+            if local_cmds != ["make"]:
+                fail(f"v12-local readiness expected make: {local_cmds}\n{local_res.stdout}\n{local_agents}")
         finally:
             shutil.rmtree(acd, ignore_errors=True)
             shutil.rmtree(project, ignore_errors=True)
+            shutil.rmtree(local_proj, ignore_errors=True)
 
         # 4. v1.2 project with a missing or unresolved compiler location.
         acd = tempfile.mkdtemp(prefix="akb-ready-v12miss-acd-")
@@ -2838,13 +3003,13 @@ def check_build_readiness():
         acd = tempfile.mkdtemp(prefix="akb-ready-upload-acd-")
         project = tempfile.mkdtemp(prefix="akb-ready-upload-")
         try:
-            stub_acd_compilers(acd, {"GCC-6.50-Dev": ["ndk39-include"]})
+            stub_acd_compilers(acd, {"GCC-6.50-Dev": ["ndk-include"]})
             unsafe = (
                 "# ApolloCrossDev Makefile Template v1.2\n"
                 "ACD_ROOT ?= $(or $(APOLLOCROSSDEV),$(PWD)/../..)\n"
                 "PREFIX = $(ACD_ROOT)/Compilers/GCC-6.50-Dev\n"
                 "C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc\n"
-                "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk39-include\n"
+                "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk-include\n"
                 "C_INCL_ALL = -I. -I$(C_INCL_NDK)\n"
                 "C_FLAGS = $(C_INCL_ALL)\n"
                 "compile:\n"
@@ -2873,7 +3038,7 @@ def check_build_readiness():
             shutil.rmtree(acd, ignore_errors=True)
             shutil.rmtree(project, ignore_errors=True)
 
-        # 7. Valid compiler path but missing NDK.
+        # 7. Valid compiler path but missing NDK (explicit --ndk 3.9).
         acd = tempfile.mkdtemp(prefix="akb-ready-ndkmiss-acd-")
         project = tempfile.mkdtemp(prefix="akb-ready-ndkmiss-")
         try:
@@ -2889,7 +3054,7 @@ def check_build_readiness():
             env = os.environ.copy()
             env["HOME"] = home
             env["APOLLOCROSSDEV"] = acd
-            result = run_py(guided_args(project, template), env=env)
+            result = run_py(guided_args(project, template) + ["--ndk", "3.9"], env=env)
             commands, agents = agents_commands(project)
             if commands:
                 fail(f"missing NDK must not document Make: {commands}\n{agents}")
@@ -2908,6 +3073,27 @@ def check_build_readiness():
             )
             if assessment["ready"] or assessment["compiler"]["status"] != "ready" or assessment["ndk"]["status"] != "absent":
                 fail(f"missing NDK readiness state changed: {assessment}")
+        finally:
+            shutil.rmtree(acd, ignore_errors=True)
+            shutil.rmtree(project, ignore_errors=True)
+
+        # 7b. Valid compiler path + explicit NDK 3.9 missing (with ndk-include present -> never substitute).
+        acd = tempfile.mkdtemp(prefix="akb-ready-ndk39-sub-")
+        project = tempfile.mkdtemp(prefix="akb-ready-ndk39-subproj-")
+        try:
+            stub_acd_compilers(acd, {"GCC-6.50-Dev": ["ndk-include"]})
+            template = write_makefile(project, V12_COMPILE, "ndk39sub.mk")
+            env = os.environ.copy()
+            env["HOME"] = home
+            env["APOLLOCROSSDEV"] = acd
+            result = run_py(guided_args(project, template) + ["--ndk", "3.9"], env=env)
+            commands, agents = agents_commands(project)
+            if commands:
+                fail(f"explicit --ndk 3.9 with absent headers must block Make: {commands}\n{agents}")
+            if "documented NDK 3.9 directory is absent" not in agents:
+                fail(f"explicit --ndk 3.9 missing NDK 3.9 blocker:\n{agents}")
+            if "not a substitute for NDK 3.9" not in agents:
+                fail(f"explicit --ndk 3.9 must reject ndk-include substitution:\n{agents}")
         finally:
             shutil.rmtree(acd, ignore_errors=True)
             shutil.rmtree(project, ignore_errors=True)
@@ -2938,19 +3124,18 @@ def check_build_readiness():
             shutil.rmtree(acd, ignore_errors=True)
             shutil.rmtree(project, ignore_errors=True)
 
-        # 9. C-only and experimental C++ generation retain existing behaviour.
+        # 9. C-only and experimental C++ generation retain existing behaviour (both compile and local v1.2).
         acd = tempfile.mkdtemp(prefix="akb-ready-lang-acd-")
         c_project = tempfile.mkdtemp(prefix="akb-ready-c-")
         cxx_project = tempfile.mkdtemp(prefix="akb-ready-cxx-")
+        local_c_project = tempfile.mkdtemp(prefix="akb-ready-local-c-")
+        local_cxx_project = tempfile.mkdtemp(prefix="akb-ready-local-cxx-")
         try:
-            stub_acd_compilers(acd, {"GCC-6.50-Dev": ["ndk39-include"]})
+            stub_acd_compilers(acd, {"GCC-6.50-Dev": ["ndk-include", "ndk32-include/Include_H"]})
             text = V12_COMPILE.replace(
                 "C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc\n",
                 "C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc\n"
-                "# C_COMPILER = $(PREFIX)/bin/m68k-amigaos-g++\n"
-                "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk39-include\n"
-                "C_INCL_ALL = -I. -I$(C_INCL_NDK)\n"
-                "C_FLAGS = $(C_INCL_ALL)\n",
+                "# C_COMPILER = $(PREFIX)/bin/m68k-amigaos-g++\n",
             )
             env = os.environ.copy()
             env["HOME"] = home
@@ -2981,28 +3166,42 @@ def check_build_readiness():
                 fail(f"C++ with g++ present should document Make: {cxx_cmds}\n{cxx_agents}")
             if "C++ compilation, linkage, and hardware execution are not verified" not in cxx_agents:
                 fail(f"C++ AGENTS.md lost unverified caveat:\n{cxx_agents}")
+            local_tpl = write_makefile(local_c_project, V12_LOCAL, "local.mk")
+            local_c_run = run_py(guided_args(local_c_project, local_tpl), env=env)
+            local_c_cmds, local_c_agents = agents_commands(local_c_project)
+            if local_c_run.returncode != 0 or local_c_cmds != ["make"]:
+                fail(f"current local v1.2 C-only expected make: {local_c_cmds}\n{local_c_run.stdout}\n{local_c_agents}")
+            local_cxx_args = guided_args(local_cxx_project, write_makefile(local_cxx_project, V12_LOCAL, "localcxx.mk"))
+            local_cxx_args = [a if a != "C" else "C++" for a in local_cxx_args]
+            local_cxx_run = run_py(local_cxx_args, env=env)
+            local_cxx_cmds, local_cxx_agents = agents_commands(local_cxx_project)
+            if local_cxx_run.returncode != 0 or local_cxx_cmds != ["make"]:
+                fail(f"current local v1.2 C++ expected make: {local_cxx_cmds}\n{local_cxx_run.stdout}\n{local_cxx_agents}")
+            if "C++ compilation, linkage, and hardware execution are not verified" not in local_cxx_agents:
+                fail(f"current local v1.2 C++ AGENTS.md lost unverified caveat:\n{local_cxx_agents}")
         finally:
             shutil.rmtree(acd, ignore_errors=True)
             shutil.rmtree(c_project, ignore_errors=True)
             shutil.rmtree(cxx_project, ignore_errors=True)
+            shutil.rmtree(local_c_project, ignore_errors=True)
+            shutil.rmtree(local_cxx_project, ignore_errors=True)
 
-        # 10. C-only stays ready without g++; C++ Makefile requires g++.
+        # 10. C-only stays ready without g++; C++ Makefile requires g++ (local-only and compile templates).
         acd = tempfile.mkdtemp(prefix="akb-ready-gpp-acd-")
         c_project = tempfile.mkdtemp(prefix="akb-ready-gpp-c-")
         cxx_project = tempfile.mkdtemp(prefix="akb-ready-gpp-cxx-")
+        local_c_nogpp = tempfile.mkdtemp(prefix="akb-ready-local-nogpp-c-")
+        local_cxx_nogpp = tempfile.mkdtemp(prefix="akb-ready-local-nogpp-cxx-")
         try:
             stub_acd_compilers(
                 acd,
-                {"GCC-6.50-Dev": ["ndk39-include"]},
+                {"GCC-6.50-Dev": ["ndk-include", "ndk32-include/Include_H"]},
                 binaries=("m68k-amigaos-gcc", "vasmm68k_mot"),
             )
             text = V12_COMPILE.replace(
                 "C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc\n",
                 "C_COMPILER = $(PREFIX)/bin/m68k-amigaos-gcc\n"
-                "# C_COMPILER = $(PREFIX)/bin/m68k-amigaos-g++\n"
-                "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk39-include\n"
-                "C_INCL_ALL = -I. -I$(C_INCL_NDK)\n"
-                "C_FLAGS = $(C_INCL_ALL)\n",
+                "# C_COMPILER = $(PREFIX)/bin/m68k-amigaos-g++\n",
             )
             env = os.environ.copy()
             env["HOME"] = home
@@ -3042,10 +3241,21 @@ def check_build_readiness():
                 fail("C++ without g++ must not be ready")
             if "NOTE=LANGUAGE C++:" not in cxx_run.stdout:
                 fail(f"C++ without g++ lost language notes:\n{cxx_run.stdout}")
+            local_c_run = run_py(guided_args(local_c_nogpp, write_makefile(local_c_nogpp, V12_LOCAL, "lc.mk")), env=env)
+            local_c_cmds, _ = agents_commands(local_c_nogpp)
+            if local_c_run.returncode != 0 or local_c_cmds != ["make"]:
+                fail(f"local v1.2 C-only without g++ must document make: {local_c_cmds}\n{local_c_run.stdout}")
+            lcxx_args = [a if a != "C" else "C++" for a in guided_args(local_cxx_nogpp, write_makefile(local_cxx_nogpp, V12_LOCAL, "lcxx.mk"))]
+            run_py(lcxx_args, env=env)
+            lcxx_cmds, lcxx_agents = agents_commands(local_cxx_nogpp)
+            if lcxx_cmds or "m68k-amigaos-g++ is missing" not in lcxx_agents:
+                fail(f"local v1.2 C++ without g++ must block Make: {lcxx_cmds}\n{lcxx_agents}")
         finally:
             shutil.rmtree(acd, ignore_errors=True)
             shutil.rmtree(c_project, ignore_errors=True)
             shutil.rmtree(cxx_project, ignore_errors=True)
+            shutil.rmtree(local_c_nogpp, ignore_errors=True)
+            shutil.rmtree(local_cxx_nogpp, ignore_errors=True)
 
         # 11. Real installed v1.0 template: out-of-tree blocks; BUILD stays cleanbefore.
         real_template = os.path.expanduser(
@@ -3203,7 +3413,7 @@ def run_target_guided(extra=None, template_text=None, ndk_dirs=None):
     os.makedirs(project)
     if ndk_dirs is None:
         ndk_dirs = {
-            "GCC-6.50-Dev": ["ndk39-include", "ndk32-include/Include_H"],
+            "GCC-6.50-Dev": ["ndk-include", "ndk39-include", "ndk32-include/Include_H"],
         }
     stub_acd_compilers(acd, ndk_dirs)
     args = guided_args(project)
@@ -3254,7 +3464,7 @@ def check_target_selection():
     if problem or core != "Core 12798\u201312841":
         fail(f"core range normalize failed: {core!r} {problem!r}")
 
-    # 1. Defaults when none specified.
+    # 1. Defaults when none specified (uses NDK 3.2, not ndk39-include).
     root, project, result = run_target_guided(template_text=dual_ndk_template())
     try:
         if result.returncode != 0:
@@ -3270,35 +3480,63 @@ def check_target_selection():
             )
             makefile = read_text(os.path.join(project, "Makefile"))
             if not re.search(
+                r"(?m)^C_INCL_NDK = \$\(PREFIX\)/\$\(TARGET\)/ndk32-include/Include_H$",
+                makefile,
+            ):
+                fail("default three-OS list did not keep NDK 3.2 active")
+            if re.search(
                 r"(?m)^C_INCL_NDK = \$\(PREFIX\)/\$\(TARGET\)/ndk39-include$",
                 makefile,
             ):
-                fail("default three-OS list did not activate ndk39-include")
+                fail("default three-OS list unexpectedly activated ndk39-include")
+            if "apolloos-and-amigaos-on-v4.md" not in result.stdout:
+                fail("default three-OS list missing AmigaOS 3.9 manual check NOTE")
             main_c = read_text(os.path.join(project, "main.c"))
             if "Reviewed applicability: Core 12798-12841, AmigaOS 3.9 and AmigaOS 3.2." not in main_c:
                 fail("default run rewrote reviewed starter applicability evidence")
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
-    # 2. Explicit AmigaOS 3.9.
+    # 2. Explicit AmigaOS 3.9: stays on NDK 3.2 (PR #38), emits manual check NOTE.
+    #    Tested on both dual legacy template and current standard V12_LOCAL (ndk-include).
     root, project, result = run_target_guided(
         extra=["--target-os", "AmigaOS 3.9"],
+        template_text=V12_LOCAL,
+        ndk_dirs={"GCC-6.50-Dev": ["ndk-include"]},
+    )
+    try:
+        if result.returncode != 0:
+            fail(f"AmigaOS 3.9 with V12_LOCAL failed:\n{result.stdout}")
+        else:
+            agents, rule = agents_and_rule(project)
+            expect_targets("amigaos-3.9-local", agents, rule, "AmigaOS 3.9", "the latest core release")
+            if uncommented_make_commands(agents) != ["make"]:
+                fail(f"AmigaOS 3.9 with ndk-include should document make:\n{agents}")
+            makefile = read_text(os.path.join(project, "Makefile"))
+            if not re.search(r"(?m)^C_INCL_NDK = \$\(PREFIX\)/\$\(TARGET\)/ndk-include$", makefile):
+                fail("AmigaOS 3.9 with V12_LOCAL did not keep ndk-include active")
+            if "apolloos-and-amigaos-on-v4.md" not in result.stdout:
+                fail("AmigaOS 3.9 with V12_LOCAL missing manual check NOTE")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+    # 2b. Explicit --ndk 3.9 activates ndk39-include when template has it.
+    root, project, result = run_target_guided(
+        extra=["--target-os", "AmigaOS 3.9", "--ndk", "3.9"],
         template_text=dual_ndk_template(),
     )
     try:
         if result.returncode != 0:
-            fail(f"AmigaOS 3.9 guided run failed:\n{result.stdout}")
+            fail(f"explicit --ndk 3.9 guided run failed:\n{result.stdout}")
         else:
-            agents, rule = agents_and_rule(project)
-            expect_targets("amigaos-3.9", agents, rule, "AmigaOS 3.9", "the latest core release")
             makefile = read_text(os.path.join(project, "Makefile"))
             if not re.search(
                 r"(?m)^C_INCL_NDK = \$\(PREFIX\)/\$\(TARGET\)/ndk39-include$",
                 makefile,
             ):
-                fail("AmigaOS 3.9 did not activate ndk39-include")
+                fail("explicit --ndk 3.9 did not activate ndk39-include")
             if re.search(r"(?m)^C_INCL_NDK = \$\(PREFIX\)/\$\(TARGET\)/ndk32-include", makefile):
-                fail("AmigaOS 3.9 left ndk32-include active")
+                fail("explicit --ndk 3.9 left ndk32-include active")
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
@@ -3457,7 +3695,7 @@ def check_target_selection():
             ])
             if result.returncode == 0 or "PROBLEM=" not in result.stdout:
                 fail(f"basic setup must reject explicit target flags:\n{result.stdout}")
-            if "does not accept --target-os or --target-core" not in result.stdout:
+            if "does not accept --target-os" not in result.stdout:
                 fail(f"basic setup rejection was not actionable:\n{result.stdout}")
             if os.path.exists(os.path.join(refused, "AGENTS.md")):
                 fail("basic setup wrote AGENTS.md after rejecting target flags")
@@ -3466,14 +3704,11 @@ def check_target_selection():
     finally:
         shutil.rmtree(basic, ignore_errors=True)
 
-    # 10. Wrong NDK line present → no claimed readiness.
+    # 10. Explicit --ndk 3.9 requested when template has no ndk39-include line → no claimed readiness.
     root, project, result = run_target_guided(
-        extra=["--target-os", "AmigaOS 3.9"],
-        template_text=(
-            bare_compile_template()
-            + "C_INCL_NDK = $(PREFIX)/$(TARGET)/ndk32-include/Include_H\n"
-        ),
-        ndk_dirs={"GCC-6.50-Dev": ["ndk32-include/Include_H"]},
+        extra=["--target-os", "AmigaOS 3.9", "--ndk", "3.9"],
+        template_text=V12_LOCAL,
+        ndk_dirs={"GCC-6.50-Dev": ["ndk-include"]},
     )
     try:
         if result.returncode != 0:

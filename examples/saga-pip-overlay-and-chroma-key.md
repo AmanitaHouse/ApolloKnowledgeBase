@@ -47,8 +47,7 @@ m68k-amigaos-gcc -noixemul -O2 -m68080 -m68881 -ffast-math -fomit-frame-pointer 
 ```
 
 The full example builds in ApolloCrossDev with `make` in
-`Projects/ApolloPiP` (which also uploads it to the Apollo V4), or
-`make cleanbefore build` to only build.
+`Projects/ApolloPiP`. Copy the program to the Apollo V4 to run it.
 
 ## Code
 

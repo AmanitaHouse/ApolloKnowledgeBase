@@ -282,25 +282,29 @@ reinstalling GCC-6.50-Dev takes a long time and uses `sudo`; you run that
 script yourself. The agent may clone the toolchain only with your consent.
 
 When the project has a Makefile, `find-acd.sh` prints `BUILD=` only for a
-command it has classified as non-uploading: `make compile`, or
+command it has classified as non-uploading: `make` (on current local-only
+templates), `make compile` (on earlier v1.2 templates), or
 `make cleanbefore build`. If it prints `NOTE=` that no Make command can be
 recommended, the agent does not run make. Plain `make` and `make debug`
 upload on v1.0 and earlier v1.2 templates; later v1.2 removed those upload
-recipes (`toolchain/project-makefile.md`). The agent runs plain `make` or
-`make debug` only when you ask. A `BUILD=` line does not clear a `PROBLEM=`.
+recipes (`toolchain/project-makefile.md`). The agent runs an unclassified
+`make` or `make debug` only when you ask. A `BUILD=` line does not clear a
+`PROBLEM=`.
 
 Header and flag choices come from `toolchain/`, not from memory. `find-acd.sh`
-checks the NDK directories the project Makefile names, as listed in
-`toolchain/target-os-headers.md`
-(`m68k-amigaos/ndk39-include`, `m68k-amigaos/ndk32-include/Include_H`) under
-the effective Makefile `PREFIX` when that location and an active wired
-`C_INCL_NDK` can be established without evaluating Make. A missing required
-directory is `PROBLEM=`; uncertainty about the compiler path or flag wiring,
-or an absent directory whose use is not established, is `NOTE=`.
-`m68k-amigaos/ndk-include` is not a substitute. The documented installer
-does not create the version-specific Makefile paths. If the required NDK
-directory is not under the effective `PREFIX`, the build is not described as
-successful.
+checks the NDK directory the project Makefile names, as documented in
+`toolchain/target-os-headers.md`: `m68k-amigaos/ndk-include` (NDK 3.2,
+the ApolloCrossDev default since PR #38), `m68k-amigaos/ndk13-include`
+(NDK 1.3), optional user-supplied `m68k-amigaos/ndk39-include` (NDK 3.9),
+or legacy `m68k-amigaos/ndk32-include/Include_H` if named by an older
+Makefile, under the effective Makefile `PREFIX` when that location and an
+active wired `C_INCL_NDK` can be established without evaluating Make. A
+missing required directory is `PROBLEM=`; uncertainty about the compiler
+path or flag wiring, or an absent directory whose use is not established,
+is `NOTE=`. `m68k-amigaos/ndk-include` is never treated as a substitute for
+an explicit `ndk39-include` requirement or an unupdated
+`ndk32-include/Include_H` path. If the required NDK directory is not under
+the effective `PREFIX`, the build is not described as successful.
 
 ## Lessons
 
@@ -390,7 +394,7 @@ in `AGENTS.md` section 9. On this fork, point that marketplace at
 |---|---|
 | Skills missing in Customize | Confirm the copy is a real directory at `~/.cursor/plugins/local/akb` with `.cursor-plugin/plugin.json` inside. Reload the window. On Enterprise, ask whether local plugin imports are allowed. |
 | `PROBLEM=` from `tools/resolve_kb.py` | Follow the `RECOVERY=` lines. An empty `ApolloKnowledgeBase/` folder means the submodule is not initialized. |
-| `PROBLEM=` from `find-acd.sh` | Install ApolloCrossDev or fix `APOLLOCROSSDEV`. Do not point it at a directory without `Compilers/`. A `PROBLEM=` about a documented NDK directory means that path is missing under the reported compiler install; do not substitute `ndk-include`. |
+| `PROBLEM=` from `find-acd.sh` | Install ApolloCrossDev or fix `APOLLOCROSSDEV`. Do not point it at a directory without `Compilers/`. A `PROBLEM=` about a required NDK directory means that path is missing under the reported compiler install; do not substitute `ndk-include` for an explicit `ndk39-include` requirement. |
 | `sh` is not recognized in PowerShell | The agent shell is Windows PowerShell. Use the host-launch section: `wsl.exe -e sh` or `wsl.exe -e python3`, with Windows paths translated. Do not call the Windows Store `python` alias. |
 | `PROBLEM=python3 is not on PATH` from a skill entry point | The `sh` script is running, and the shared program in `tools/` needs Python 3. PyYAML is not required for that program. On Git Bash this line means WSL `python3` was not usable either. The Windows Store aliases in `WindowsApps` are not a Python install. Start WSL, or install a Python 3 that `python3 -c "import sys"` can run. |
 | `UPDATE=compiler` or `UPDATE=checkout` | You decide. A build may continue. A reinstall is yours to run. |
@@ -438,8 +442,8 @@ It does not load either editor. The default invocation is fixture-only: it
 does not run Make or the compiler, and it prints
 `RESULT guided-build SKIPPED`. Pass `--run-toolchain` for the authorised
 real-toolchain probe. That probe may run a verified non-uploading Make
-target such as `make compile` or `make cleanbefore build`, and a compiler
-smoke test when the documented NDK path is absent. It still never runs
-`make` or `make debug` as those upload. `RESULT guided-build PASS` appears
+target (`make`, `make compile`, or `make cleanbefore build`), and a compiler
+smoke test when the Makefile NDK path is absent. It still never runs an
+uploading `make` or `make debug`. `RESULT guided-build PASS` appears
 only after that opt-in probe finishes a real compile with no errors and no
 warnings.
