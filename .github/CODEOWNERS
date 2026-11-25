@@ -155,6 +155,7 @@
 /core/pitfalls/self-modifying-code-and-caches.md @TuKo1982
 /core/pitfalls/tex-does-not-match-prm.md @TuKo1982
 /core/pitfalls/touch-misuse.md @TuKo1982
+/core/pitfalls/turtle-mode-counters.md @WDrijver
 /core/saga-3d-maggie/index.md @WDrijver
 /core/saga-3d-maggie/registers.md @TuKo1982
 /core/saga-audio-arne/index.md @WDrijver
