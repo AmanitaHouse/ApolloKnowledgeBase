@@ -94,7 +94,8 @@ the `libm020` or `libm020/libm881` builds (SRC: `m68k-amigaos-gcc
 
 ### Other options in the Makefile template
 
-- `-g`: debug information, for remote debugging with bgdbserver.
+- `-g`: debug information. ApolloCrossDev no longer installs bgdbserver
+  (since v1.2, 2026-11-08), so there is no remote debugger in the toolchain.
 - `-DREGPARM=4`: ignore it. It is not part of the standard options.
 
 ### Compile and link

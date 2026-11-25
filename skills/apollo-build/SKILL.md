@@ -44,14 +44,15 @@ last changed, for example after a `git pull` without a reinstall.
 The project's Makefile comes from ApolloCrossDev's template
 (`Projects/_makefiles/Makefile`, see `KB toolchain/project-makefile.md`).
 
-| Goal | Command |
+| Makefile | Build command |
 |---|---|
-| Compile and link only | `make compile` (template v1.2 and later); with an older Makefile `make cleanbefore build` |
-| Also upload to the V4 (`$AMIGAHOST`) | `make` |
-| Upload with the remote debugger | `make debug` |
+| Current template (no `upload_all:` target) | `make` |
+| Older Makefile with an `upload_all:` target | `make cleanbefore build` |
 
-- Run `make compile` yourself. Run `make` or `make debug` only when the user
-  asks: they copy files to the user's Apollo V4 over the network.
+- Since ApolloCrossDev v1.2 (2026-11-08) the template only builds on the
+  host. In an older Makefile, plain `make` and `make debug` also copy files
+  to the user's Apollo V4 over the network: run them only when the user
+  asks. `find-acd.sh` reports such a Makefile with a `NOTE=` line.
 - The Makefile hides compiler stdout; errors and warnings arrive on stderr.
   Read all of it.
 - Without a Makefile (a quick test), use the flags from
