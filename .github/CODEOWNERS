@@ -226,8 +226,13 @@
 /toolchain/pitfalls/apollolib-known-bugs.md @WDrijver
 /toolchain/pitfalls/calling-assembler-from-gcc.md @TuKo1982
 /toolchain/pitfalls/float-settings-mismatch.md @TuKo1982
+/toolchain/pitfalls/gcc-bbb-autoinc-converted-insn.md @WDrijver
+/toolchain/pitfalls/gcc-bbb-autoinc-fixup-ice.md @WDrijver
 /toolchain/pitfalls/gcc-bbb-autoinc.md @TuKo1982
+/toolchain/pitfalls/gcc-bbb-propagate-moves-ice.md @WDrijver
+/toolchain/pitfalls/gcc-bbb-propagate-moves-loop-exit.md @WDrijver
 /toolchain/pitfalls/gcc-bbb-shift-wrong-code.md @TuKo1982
+/toolchain/pitfalls/gcc-bbb-stale-memory-value.md @WDrijver
 /toolchain/pitfalls/gcc-btst-memory-bit-number.md @WDrijver
 /toolchain/pitfalls/gcc-dbra-address-register-loop.md @TuKo1982
 /toolchain/pitfalls/gcc-double-indirect-stack-slot.md @WDrijver
